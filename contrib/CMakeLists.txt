@@ -1,1 +1,1 @@
-
+add_subdirectory(open_spiel/open_spiel)

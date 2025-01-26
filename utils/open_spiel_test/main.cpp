@@ -1,7 +1,11 @@
+#include "RNadBot.h"
+
+#include <torch/script.h>
+
 #include "open_spiel/abseil-cpp/absl/random/uniform_int_distribution.h"
 #include "open_spiel/games/universal_poker/acpc_cpp/acpc_game.h"
-#include "open_spiel/spiel.h"
 #include "open_spiel/spiel_utils.h"
+#include "open_spiel/spiel_bots.h"
 #include "open_spiel/games/universal_poker/universal_poker.h"
 #include <memory>
 
@@ -11,19 +15,13 @@ using namespace open_spiel::universal_poker;
 using namespace open_spiel::universal_poker::acpc_cpp;
 
 
-void PrintLegalActions(const ACPCState & state,
-                       open_spiel::Player player) {
-    std::cerr << "Legal moves for player " << player << ":" << std::endl;
-    for (ACPCState::ACPCActionType action_type : {ACPCState::ACPC_FOLD, ACPCState::ACPC_CALL}) {
-        std::cerr << "  " << state.IsValidAction(action_type, 0) << std::endl;
-    }
-}
-
 int main(int argc, char** argv) {
     open_spiel::GameParameters gameParams = {
         {"betting", GameParameter("nolimit")},
         {"numPlayers", GameParameter(6)},
+        {"numRounds", GameParameter(4)},
         {"blind", GameParameter("1 2 0 0 0 0")},
+        {"firstPlayer", GameParameter("2 1 1 1,")},
         {"numSuits", GameParameter(4)},
         {"numRanks", GameParameter(13)},
         {"numHoleCards", GameParameter(2)},
@@ -42,6 +40,12 @@ int main(int argc, char** argv) {
 
     std::cerr << "Initial state:" << std::endl << state->ToString() << std::endl;
 
+    std::vector<std::unique_ptr<open_spiel::Bot>> rNadBots;
+    rNadBots.reserve(game->NumPlayers());
+    for (int player_id = 0; player_id < game->NumPlayers(); ++player_id) {
+        rNadBots.push_back(open_spiel::LoadBot("rnad", game, player_id, {}));
+    }
+
     while (!state->IsTerminal()) {
         std::cerr << "player " << state->CurrentPlayer() << std::endl;
 
@@ -56,18 +60,13 @@ int main(int argc, char** argv) {
             state->ApplyAction(action);
         } else {
             assert(!state->IsSimultaneousNode());
-            // Decision node, sample one uniformly.
+
             auto player = state->CurrentPlayer();
-            std::vector<open_spiel::Action> actions = state->LegalActions();
-
-            const acpc_cpp::ACPCState & acpcState = state->acpc_state();
-            PrintLegalActions(acpcState, player);
-
-            absl::uniform_int_distribution<> dis(0, actions.size() - 1);
-            auto action = actions[dis(rng)];
-            std::cerr << "chose action: " << state->ActionToString(player, action)
-                        << std::endl;
+            auto action = rNadBots[player]->Step(*state.get());
+            std::cerr << "chose action: " << state->ActionToString(player, action) << std::endl;
             state->ApplyAction(action);
         }
     }
+
+    return 0;
 }
