@@ -2,6 +2,8 @@ build/
 .cache/
 *.egg-info/
 
+*.pt
+
 # Prerequisites
 *.d
 
