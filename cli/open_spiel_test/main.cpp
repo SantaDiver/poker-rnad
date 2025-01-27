@@ -39,12 +39,7 @@ int main(int argc, char** argv) {
     );
 
     std::cerr << "Initial state:" << std::endl << state->ToString() << std::endl;
-
-    std::vector<std::unique_ptr<open_spiel::Bot>> rNadBots;
-    rNadBots.reserve(game->NumPlayers());
-    for (int player_id = 0; player_id < game->NumPlayers(); ++player_id) {
-        rNadBots.push_back(open_spiel::LoadBot("rnad", game, player_id, {}));
-    }
+    auto rNadBot = open_spiel::LoadBot("rnad", game, 0, {});
 
     while (!state->IsTerminal()) {
         std::cerr << "player " << state->CurrentPlayer() << std::endl;
@@ -60,12 +55,16 @@ int main(int argc, char** argv) {
             state->ApplyAction(action);
         } else {
             assert(!state->IsSimultaneousNode());
-
-            auto player = state->CurrentPlayer();
-            auto action = rNadBots[player]->Step(*state.get());
-            std::cerr << "chose action: " << state->ActionToString(player, action) << std::endl;
+            auto action = rNadBot->Step(*state.get());
+            std::cerr << "chose action: " << state->ActionToString(state->CurrentPlayer(), action) << std::endl;
             state->ApplyAction(action);
         }
+    }
+
+    open_spiel::Player player = 0;
+    for (auto r : state->Returns()) {
+        std::cerr << "Player " << player << " return " << r << std::endl;
+        ++player;
     }
 
     return 0;

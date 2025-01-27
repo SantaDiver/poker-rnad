@@ -10,4 +10,5 @@ set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
 include(CPack)
 
 add_subdirectory(contrib)
-add_subdirectory(utils)
+add_subdirectory(cli)
+add_subdirectory(lib/cpp)
