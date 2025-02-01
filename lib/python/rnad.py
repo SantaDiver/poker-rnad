@@ -1,8 +1,5 @@
 import pyspiel
-import torch
 from torch import nn
-
-from poker_rnad_py import Actor
 
 
 class ResNet(nn.Module):
@@ -56,47 +53,28 @@ class RNadModel(nn.Module):
         )
 
 
-class RNad:
+class RNaD(nn.Module):
     def __init__(self, game_def):
         self.game = pyspiel.load_game(game_def)
+        self.model = self.init_model()
+
+        self.target_model = self.init_model()
+        self.target_model.load_state_dict(self.model.state_dict())
+        self.reg_model = self.init_model()
+        self.reg_model.load_state_dict(self.model.state_dict())
+        self.reg_model_prev = self.init_model()
+        self.reg_model_prev.load_state_dict(self.model.state_dict())
+
+    def init_model(self):
         infostate_tensor_shape = self.game.information_state_tensor_shape()[0]
         num_actions = self.game.num_distinct_actions()
-
-        self.model = RNadModel(
+        model = RNadModel(
             infostate_tensor_shape=infostate_tensor_shape,
             num_actions=num_actions,
             hidden_dim=256,
             dropout=0.1
         )
-        jit_model = torch.jit.script(self.model)
-        self.actor = Actor(self.game, jit_model._c)
+        return model
 
-    def step(self):
-        trajectory = self.actor.generate_trajectory()
-        print(trajectory.states)
-        print(trajectory.returns)
-
-
-def main():
-    game_def = """universal_poker(
-        betting=nolimit,
-        bettingAbstraction=fullgame,
-        numPlayers=6,
-        blind=2 1 0 0 0 0,
-        numRounds=4,
-        firstPlayer=2 1 1 1,
-        numSuits=4,
-        numRanks=13,
-        numHoleCards=2,
-        numBoardCards=0 3 1 1,
-        stack=200 200 200 200 200 200
-    )
-    """.replace("    ", "").replace("\n", "")
-    print(game_def)
-
-    rnad = RNad(game_def)
-    rnad.step()
-
-
-if __name__ == '__main__':
-    main()
+    def forward(self, trajectories):
+        pass
