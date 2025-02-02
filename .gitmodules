@@ -1,3 +1,6 @@
 [submodule "contrib/open_spiel"]
 	path = contrib/open_spiel
 	url = git@github.com:google-deepmind/open_spiel.git
+[submodule "contrib/thread-pool"]
+	path = contrib/thread-pool
+	url = git@github.com:bshoshany/thread-pool.git

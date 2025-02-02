@@ -2,7 +2,7 @@ import pyspiel
 import torch
 from torch import nn
 
-from poker_rnad_py import Actor
+from poker_rnad_py import ActorThread
 
 
 class ResNet(nn.Module):
@@ -69,10 +69,10 @@ class RNad:
             dropout=0.1
         )
         jit_model = torch.jit.script(self.model)
-        self.actor = Actor(self.game, jit_model._c)
+        self.actor = ActorThread(self.game, jit_model._c, 1)
 
     def step(self):
-        trajectories = self.actor.generate_trajectories_batch(32)
+        trajectories = self.actor.generate_trajectories_batch(2 ** 8)
         print(len(trajectories))
 
 
