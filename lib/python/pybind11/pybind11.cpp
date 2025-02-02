@@ -11,8 +11,9 @@ PYBIND11_MODULE(poker_rnad_py, m) {
         .def_readwrite("information_state", &Trajectory::State::information_state)
         .def_readwrite("current_player", &Trajectory::State::current_player)
         .def_readwrite("legal_actions", &Trajectory::State::legal_actions)
-        .def_readwrite("action", &Trajectory::State::action)
+        .def_readwrite("is_terminal", &Trajectory::State::is_terminal)
         .def_readwrite("policy", &Trajectory::State::policy)
+        .def_readwrite("action", &Trajectory::State::action)
 
         .def("__repr__", &Trajectory::State::ToString)
         .def("__str__", &Trajectory::State::ToString);
@@ -26,5 +27,5 @@ PYBIND11_MODULE(poker_rnad_py, m) {
 
     py::class_<Actor>(m, "Actor")
         .def(py::init<const open_spiel::Game &, torch::jit::Module &>())
-        .def("generate_trajectory", &Actor::generateTrajectory);
+        .def("generate_trajectories_batch", &Actor::generateTrajectoriesBatch);
 }

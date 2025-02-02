@@ -72,9 +72,8 @@ class RNad:
         self.actor = Actor(self.game, jit_model._c)
 
     def step(self):
-        trajectory = self.actor.generate_trajectory()
-        print(trajectory.states)
-        print(trajectory.returns)
+        trajectories = self.actor.generate_trajectories_batch(32)
+        print(len(trajectories))
 
 
 def main():

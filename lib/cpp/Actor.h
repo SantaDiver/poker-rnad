@@ -2,86 +2,48 @@
 
 #include <memory>
 #include <string>
+#include <ranges>
 #include <torch/csrc/jit/api/module.h>
 #include <torch/script.h>
 
+#include "ATen/core/TensorBody.h"
 #include "absl/strings/str_cat.h"
 #include "open_spiel/spiel.h"
 #include "open_spiel/spiel_bots.h"
 
-#include "RNadBot.h"
 #include "open_spiel/spiel_utils.h"
-
-
-struct Trajectory {
-    struct State {
-        std::vector<float> information_state;
-        open_spiel::Player current_player;
-        std::vector<open_spiel::Action> legal_actions;
-        open_spiel::Action action;
-        open_spiel::ActionsAndProbs policy;
-
-        std::string ToString() const {
-            std::string s;
-            absl::StrAppend(&s, "State(current_player=", current_player,
-                ", action=", action, ")");
-            return s;
-        }
-    };
-
-    std::vector<State> states;
-    std::vector<double> returns;
-
-    std::string ToString() const {
-        std::string s;
-        absl::StrAppend(&s, "Trajectory(", states.size(), " states)");
-        return s;
-    }
-};
+#include "Trajectory.h"
 
 
 class Actor {
+    static constexpr float EPS = 1e-10;
+
 public:
-    Actor(const open_spiel::Game & game_, torch::jit::Module & model_)
-        : game(game_)
-        , model(model_)
-        , rng(absl::ToUnixNanos(absl::Now()))
-        , bot(std::make_unique<RNadBot>(absl::ToUnixNanos(absl::Now()), &model))
-    {
-    }
-
-    Trajectory generateTrajectory() const {
-        std::unique_ptr<open_spiel::State> state = game.NewInitialState();
-        Trajectory trajectory;
-        while (!state->IsTerminal()) {
-            if (state->IsChanceNode()) {
-                open_spiel::ActionsAndProbs outcomes = state->ChanceOutcomes();
-                open_spiel::Action action = open_spiel::SampleAction(outcomes, rng).first;
-                state->ApplyAction(action);
-            } else {
-                open_spiel::Player player = state->CurrentPlayer();
-                auto action_with_policy = bot->StepWithPolicy(*state.get());
-                open_spiel::Action action = action_with_policy.second;
-
-                trajectory.states.push_back(Trajectory::State{
-                    state->InformationStateTensor(),
-                    player,
-                    state->LegalActions(),
-                    action_with_policy.second,
-                    std::move(action_with_policy.first)
-                });
-                state->ApplyAction(action);
-            }
-        }
-        trajectory.returns = state->Returns();
-
-        return trajectory;
-    };
+    using TrajectoriesVector = std::vector<Trajectory>;
+    Actor(const open_spiel::Game & game_, torch::jit::Module & model_);
+    TrajectoriesVector generateTrajectoriesBatch(size_t num_trajectories) const;
 
 private:
+    using StatePtr = std::unique_ptr<open_spiel::State>;
+    using StateVector = std::vector<StatePtr>;
+    using ActionVector = std::vector<open_spiel::Action>;
+    using PolicyVector = std::vector<open_spiel::ActionsAndProbs>;
+    using PoliciesActions = std::pair<PolicyVector, ActionVector>;
+
+    void playChance(StatePtr & state) const;
+    void applyAction(StateVector & state_vec, const ActionVector & action_vec) const;
+    std::vector<float> infoStateVector(const StatePtr & state) const;
+    ActionVector legalActions(const StatePtr & state) const;
+    PoliciesActions applyModel(const StateVector & state_vec) const;
+    void updateTrajectories(
+            const StateVector & state_vec,
+            const PolicyVector & policy_vec,
+            const ActionVector & action_vec,
+            TrajectoriesVector & trajectories_vec
+    ) const;
+
     const open_spiel::Game & game;
+    StatePtr initial_state;
     mutable torch::jit::Module model;
     mutable std::mt19937 rng;
-    std::shared_ptr<open_spiel::Policy> policy;
-    std::unique_ptr<open_spiel::Bot> bot;
 };
