@@ -1,7 +1,0 @@
-set(TARGET_NAME test)
-add_executable(test main.cpp)
-
-target_link_libraries(${TARGET_NAME} PRIVATE poker_rnad_cpp)
-target_link_libraries(${TARGET_NAME} PUBLIC
-    ${poker-rnad_SOURCE_DIR}/contrib/open_spiel/build/libopen_spiel.dylib
-)

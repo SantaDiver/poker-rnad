@@ -1,7 +1,8 @@
-#include "ActorThread.h"
+#include "ActorWorker.h"
 #include "open_spiel/game_parameters.h"
 #include "open_spiel/games/universal_poker/universal_poker.h"
 #include "open_spiel/spiel.h"
+#include "open_spiel/spiel_utils.h"
 #include <exception>
 #include <memory>
 #include <mutex>
@@ -14,20 +15,36 @@ namespace PokerRnaD {
     thread_local std::mt19937 rng;
 }
 
-ActorThread::ActorThread(
+ActorWorker::ActorWorker(
         const open_spiel::Game * game_,
         torch::jit::Module & model_,
+        Queue * queue_,
+        size_t batch_size_,
         size_t num_threads
 )
     : game(game_)
     , model(model_)
+    , queue(queue_)
+    , batch_size(batch_size_)
     , thread_pool(num_threads)
+    , is_blocked(false)
 {
     initial_state = game->NewInitialState();
     playChance(initial_state);
 }
 
-std::vector<Trajectory> ActorThread::generateTrajectoriesBatch(size_t num_trajectories) const {
+void ActorWorker::run() {
+    SPIEL_CHECK_TRUE(queue);
+    SPIEL_CHECK_GT(batch_size, 0);
+
+    while(!is_blocked) {
+        queue->Push(generateTrajectoriesBatch(batch_size));
+    }
+}
+
+void ActorWorker::stop() { is_blocked = true; }
+
+ActorWorker::TrajectoryBatch ActorWorker::generateTrajectoriesBatch(size_t num_trajectories) const {
     StateVector state_vec(num_trajectories);
 
     thread_pool.detach_blocks(0, num_trajectories,
@@ -39,7 +56,7 @@ std::vector<Trajectory> ActorThread::generateTrajectoriesBatch(size_t num_trajec
         });
     thread_pool.wait();
 
-    std::vector<Trajectory> trajectories_vec(num_trajectories);
+    TrajectoryBatch trajectories_vec(num_trajectories);
     while (true) {
         auto model_inputs = makeModelInputs(state_vec);
         auto output = model.forward(model_inputs).toTuple()->elements();
@@ -58,7 +75,7 @@ std::vector<Trajectory> ActorThread::generateTrajectoriesBatch(size_t num_trajec
     return trajectories_vec;
 }
 
-void ActorThread::playChance(ActorThread::StatePtr & state) {
+void ActorWorker::playChance(ActorWorker::StatePtr & state) {
     while (state->IsChanceNode()) {
         open_spiel::ActionsAndProbs outcomes = state->ChanceOutcomes();
         open_spiel::Action action = open_spiel::SampleAction(outcomes, PokerRnaD::rng).first;
@@ -66,11 +83,11 @@ void ActorThread::playChance(ActorThread::StatePtr & state) {
     }
 }
 
-bool ActorThread::applyAction(
-        ActorThread::StateVector & state_vec,
-        const ActorThread::PolicyVector & policy_vec,
-        const ActorThread::ActionVector & action_vec,
-        std::vector<Trajectory> & trajectories_vec
+bool ActorWorker::applyAction(
+        StateVector & state_vec,
+        const PolicyVector & policy_vec,
+        const ActionVector & action_vec,
+        TrajectoryBatch & trajectories_vec
 ) const {
     BS::multi_future<bool> loop_future = thread_pool.submit_blocks(
         0, state_vec.size(),
@@ -104,17 +121,17 @@ bool ActorThread::applyAction(
         [](const bool v){ return v; });
 }
 
-inline std::vector<float> ActorThread::infoStateVector(const ActorThread::StatePtr & state) const {
+inline std::vector<float> ActorWorker::infoStateVector(const ActorWorker::StatePtr & state) const {
     if (state->IsTerminal()) return initial_state->InformationStateTensor();
     return state->InformationStateTensor();
 }
 
-inline ActorThread::ActionVector ActorThread::legalActions(const ActorThread::StatePtr & state) const {
+inline ActorWorker::ActionVector ActorWorker::legalActions(const ActorWorker::StatePtr & state) const {
     if (state->IsTerminal()) return initial_state->LegalActions();
     return state->LegalActions();
 }
 
-std::vector<torch::jit::IValue> ActorThread::makeModelInputs(const ActorThread::StateVector & state_vec) const {
+std::vector<torch::jit::IValue> ActorWorker::makeModelInputs(const ActorWorker::StateVector & state_vec) const {
     std::vector<torch::Tensor> info_state_tensor_vec(state_vec.size());
     thread_pool.detach_blocks(0, state_vec.size(),
         [this, &state_vec, &info_state_tensor_vec](const std::size_t start, const std::size_t end) {
@@ -132,8 +149,8 @@ std::vector<torch::jit::IValue> ActorThread::makeModelInputs(const ActorThread::
     return {torch::stack(info_state_tensor_vec)};
 }
 
-ActorThread::PolicyActionVectors ActorThread::sampleAction(
-    const ActorThread::StateVector & state_vec, const torch::Tensor & probs) const {
+ActorWorker::PolicyActionVectors ActorWorker::sampleAction(
+    const ActorWorker::StateVector & state_vec, const torch::Tensor & probs) const {
     PolicyVector policy_vec(state_vec.size());
     ActionVector action_vec(state_vec.size());
     thread_pool.detach_blocks(0, state_vec.size(),

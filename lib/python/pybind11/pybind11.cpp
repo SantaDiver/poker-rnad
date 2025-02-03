@@ -1,7 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
-#include "ActorThread.h"
+#include "Actor.h"
 
 namespace py = pybind11;
 
@@ -25,7 +25,15 @@ PYBIND11_MODULE(poker_rnad_py, m) {
         .def("__repr__", &Trajectory::ToString)
         .def("__str__", &Trajectory::ToString);
 
-    py::class_<ActorThread>(m, "ActorThread")
-        .def(py::init<const open_spiel::Game *, torch::jit::Module &, const size_t>())
-        .def("generate_trajectories_batch", &ActorThread::generateTrajectoriesBatch);
+    py::class_<Actor>(m, "Actor")
+        .def(py::init<
+            const open_spiel::Game *,
+            torch::jit::Module &,
+            const size_t,
+            const size_t,
+            const size_t,
+            const size_t
+        >())
+        .def("run", &Actor::run)
+        .def("stop", &Actor::stop);
 }
