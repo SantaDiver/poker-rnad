@@ -20,12 +20,14 @@ ActorWorker::ActorWorker(
         const torch::jit::Module & model_,
         Queue * queue_,
         size_t batch_size_,
-        size_t num_threads
+        size_t num_threads,
+        const std::string_view device_name_
 )
     : game(game_)
     , model(model_)
     , queue(queue_)
     , batch_size(batch_size_)
+    , device_name(device_name_)
     , thread_pool(num_threads, []{ ActorWorkerRng::rng.seed(std::random_device()()); })
     , is_blocked(false)
 {
@@ -151,7 +153,7 @@ std::vector<torch::jit::IValue> ActorWorker::makeModelInputs(const ActorWorker::
                     {static_cast<int64_t>(info_state_tensor.size())},
                     torch::dtype(torch::kFloat32)
                 );
-                info_state_tensor_vec[i] = std::move(tensor.clone());
+                info_state_tensor_vec[i] = std::move(tensor.clone().to(device_name));
             }
         });
     thread_pool.wait();

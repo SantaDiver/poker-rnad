@@ -26,7 +26,8 @@ public:
         const torch::jit::Module & model_,
         Queue * queue_ = nullptr,
         size_t batch_size_ = 0,
-        size_t num_threads = 0
+        size_t num_threads = 0,
+        const std::string_view device_name_ = "cpu"
     );
 
     TrajectoryBatch generateTrajectoriesBatch(size_t num_trajectories) const;
@@ -59,6 +60,8 @@ private:
     mutable BS::light_thread_pool thread_pool;
     Queue * queue;
     const size_t batch_size;
+    const std::string device_name;
+
     StatePtr initial_state;
     std::atomic<bool> is_blocked;
     mutable std::mutex mtx;

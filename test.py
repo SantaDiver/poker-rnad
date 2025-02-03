@@ -63,34 +63,36 @@ class RNad:
         infostate_tensor_shape = self.game.information_state_tensor_shape()[0]
         num_actions = self.game.num_distinct_actions()
 
+        self.device = torch.device("cpu")
         self.model = RNadModel(
             infostate_tensor_shape=infostate_tensor_shape,
             num_actions=num_actions,
             hidden_dim=256,
             dropout=0.1
-        )
+        ).to(self.device)
         jit_model = torch.jit.script(self.model)
         self.actor = Actor(
             game=self.game,
             model=jit_model._c,
-            num_workers=2,
+            num_workers=32,
             num_worked_threads=0,
             batch_size=256,
-            max_queue_capacity=16
+            max_queue_capacity=16,
+            device_name=str(self.device)
         )
 
     def step(self):
         self.actor.run()
 
         for _ in range(3):
-            print(len(self.actor.get_batch(wait_seconds=5)))
+            print(len(self.actor.get_batch(wait_seconds=30)))
 
         jit_model = torch.jit.script(self.model)
         self.actor.update_model(model=jit_model._c)
         print("Updating model")
 
         for _ in range(3):
-            print(len(self.actor.get_batch(wait_seconds=10)))
+            print(len(self.actor.get_batch(wait_seconds=30)))
 
         self.actor.stop()
 

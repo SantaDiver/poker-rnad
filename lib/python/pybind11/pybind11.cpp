@@ -27,10 +27,10 @@ PYBIND11_MODULE(poker_rnad_py, m) {
 
     py::class_<Actor>(m, "Actor")
         .def(py::init<const open_spiel::Game *, const torch::jit::Module &, const size_t,
-            const size_t, const size_t, const size_t>(),
+            const size_t, const size_t, const size_t, const std::string_view>(),
             py::arg("game"), py::arg("model"), py::arg("num_workers"),
             py::arg("num_worked_threads"), py::arg("batch_size"),
-            py::arg("max_queue_capacity"))
+            py::arg("max_queue_capacity"), py::arg("device_name") = "cpu")
         .def("run", &Actor::run)
         .def("stop", &Actor::stop)
         .def("get_batch", &Actor::getBatch, py::arg("wait_seconds"))
