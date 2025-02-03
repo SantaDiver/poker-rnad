@@ -8,22 +8,26 @@ class Actor {
 public:
     Actor(
             const open_spiel::Game * game_,
-            torch::jit::Module & model_,
+            const torch::jit::Module & model_,
             size_t num_workers_,
             size_t num_worker_threads_,
             size_t batch_size_,
-            size_t max_queue_capacity
+            size_t max_queue_capacity_
     )
         : game(game_)
         , model(model_)
         , num_workers(num_workers_)
         , num_worker_threads(num_worker_threads_)
         , batch_size(batch_size_)
-        , queue(std::make_unique<ActorWorker::Queue>(max_queue_capacity))
+        , max_queue_capacity(max_queue_capacity_)
     {
     };
 
+    ~Actor() { stop(); }
+
     void run() {
+        queue = std::make_unique<ActorWorker::Queue>(max_queue_capacity);
+
         for (size_t i = 0; i < num_workers; ++i) {
             workers.push_back(std::make_unique<ActorWorker>(
                 game, model, queue.get(), batch_size, num_worker_threads
@@ -34,8 +38,20 @@ public:
     }
 
     void stop() {
-        for (size_t i = 0; i < num_workers; ++i) workers[i]->stop();
-        for (size_t i = 0; i < num_workers; ++i) threads[i].join();
+        for (size_t i = 0; i < workers.size(); ++i) workers[i]->stop();
+        for (size_t i = 0; i < threads.size(); ++i) threads[i].join();
+
+        threads.clear();
+        workers.clear();
+    }
+
+    ActorWorker::TrajectoryBatch getBatch(size_t seconds) {
+        auto batch = queue->Pop(absl::Seconds(seconds));
+        return batch.value();
+    }
+
+    void updateModel(const torch::jit::Module & model) {
+        for (size_t i = 0; i < workers.size(); ++i) workers[i]->updateModel(model);
     }
 
 private:
@@ -44,6 +60,7 @@ private:
     const size_t num_workers;
     const size_t num_worker_threads;
     const size_t batch_size;
+    const size_t max_queue_capacity;
     std::unique_ptr<ActorWorker::Queue> queue;
 
     std::vector< std::unique_ptr<ActorWorker> > workers;

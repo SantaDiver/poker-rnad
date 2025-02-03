@@ -23,7 +23,7 @@ public:
 
     ActorWorker(
         const open_spiel::Game * game_,
-        torch::jit::Module & model_,
+        const torch::jit::Module & model_,
         Queue * queue_ = nullptr,
         size_t batch_size_ = 0,
         size_t num_threads = 0
@@ -32,6 +32,7 @@ public:
     TrajectoryBatch generateTrajectoriesBatch(size_t num_trajectories) const;
     void run();
     void stop();
+    void updateModel(const torch::jit::Module & model_);
 
 private:
     using StatePtr = std::unique_ptr<open_spiel::State>;
@@ -59,5 +60,6 @@ private:
     Queue * queue;
     const size_t batch_size;
     StatePtr initial_state;
-    bool is_blocked;
+    std::atomic<bool> is_blocked;
+    mutable std::mutex mtx;
 };

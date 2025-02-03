@@ -11,13 +11,13 @@
 #include <thread>
 
 
-namespace PokerRnaD {
+namespace ActorWorkerRng {
     thread_local std::mt19937 rng;
 }
 
 ActorWorker::ActorWorker(
         const open_spiel::Game * game_,
-        torch::jit::Module & model_,
+        const torch::jit::Module & model_,
         Queue * queue_,
         size_t batch_size_,
         size_t num_threads
@@ -26,7 +26,7 @@ ActorWorker::ActorWorker(
     , model(model_)
     , queue(queue_)
     , batch_size(batch_size_)
-    , thread_pool(num_threads)
+    , thread_pool(num_threads, []{ ActorWorkerRng::rng.seed(std::random_device()()); })
     , is_blocked(false)
 {
     initial_state = game->NewInitialState();
@@ -42,7 +42,15 @@ void ActorWorker::run() {
     }
 }
 
-void ActorWorker::stop() { is_blocked = true; }
+void ActorWorker::stop() {
+    is_blocked = true;
+    queue->BlockNewValues();
+}
+
+void ActorWorker::updateModel(const torch::jit::Module & model_) {
+    std::lock_guard<std::mutex> lock(mtx);
+    model = model_;
+}
 
 ActorWorker::TrajectoryBatch ActorWorker::generateTrajectoriesBatch(size_t num_trajectories) const {
     StateVector state_vec(num_trajectories);
@@ -58,6 +66,7 @@ ActorWorker::TrajectoryBatch ActorWorker::generateTrajectoriesBatch(size_t num_t
 
     TrajectoryBatch trajectories_vec(num_trajectories);
     while (true) {
+        std::lock_guard<std::mutex> lock(mtx);
         auto model_inputs = makeModelInputs(state_vec);
         auto output = model.forward(model_inputs).toTuple()->elements();
         auto probs = output[output.size() - 1].toTensor();
@@ -78,7 +87,7 @@ ActorWorker::TrajectoryBatch ActorWorker::generateTrajectoriesBatch(size_t num_t
 void ActorWorker::playChance(ActorWorker::StatePtr & state) {
     while (state->IsChanceNode()) {
         open_spiel::ActionsAndProbs outcomes = state->ChanceOutcomes();
-        open_spiel::Action action = open_spiel::SampleAction(outcomes, PokerRnaD::rng).first;
+        open_spiel::Action action = open_spiel::SampleAction(outcomes, ActorWorkerRng::rng).first;
         state->ApplyAction(action);
     }
 }
@@ -170,7 +179,7 @@ ActorWorker::PolicyActionVectors ActorWorker::sampleAction(
                 }
                 open_spiel::NormalizePolicy(&policy);
                 const auto action = open_spiel::SampleAction(
-                    policy, PokerRnaD::rng).first;
+                    policy, ActorWorkerRng::rng).first;
                 policy_vec[i] = std::move(policy);
                 action_vec[i] = action;
             }

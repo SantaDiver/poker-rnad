@@ -70,11 +70,28 @@ class RNad:
             dropout=0.1
         )
         jit_model = torch.jit.script(self.model)
-        self.actor = Actor(self.game, jit_model._c, 2, 0, 256, 1024)
+        self.actor = Actor(
+            game=self.game,
+            model=jit_model._c,
+            num_workers=2,
+            num_worked_threads=0,
+            batch_size=256,
+            max_queue_capacity=16
+        )
 
     def step(self):
         self.actor.run()
-        time.sleep(10)
+
+        for _ in range(3):
+            print(len(self.actor.get_batch(wait_seconds=5)))
+
+        jit_model = torch.jit.script(self.model)
+        self.actor.update_model(model=jit_model._c)
+        print("Updating model")
+
+        for _ in range(3):
+            print(len(self.actor.get_batch(wait_seconds=10)))
+
         self.actor.stop()
 
 
