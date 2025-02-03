@@ -53,8 +53,6 @@ std::vector<Trajectory> ActorThread::generateTrajectoriesBatch(size_t num_trajec
             action_vec,
             trajectories_vec);
         if (!has_non_terminal) break;
-
-        break;
     }
 
     return trajectories_vec;
