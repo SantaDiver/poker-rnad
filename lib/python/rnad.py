@@ -1,10 +1,13 @@
 import pyspiel
+import torch
 from torch import nn
+import torch.nn.functional as F
 
 
 class ResNet(nn.Module):
     def __init__(
-            self, embedding_dim, dropout=0.0, prenorm=True, activation=nn.ReLU()):
+            self, embedding_dim, dropout=0.0, prenorm=True, activation=nn.ReLU()
+    ):
         super().__init__()
         self.layer = nn.Sequential(
             nn.Linear(embedding_dim, embedding_dim),
@@ -14,6 +17,7 @@ class ResNet(nn.Module):
         self.layernorm = nn.LayerNorm(embedding_dim)
         self.prenorm = prenorm
         nn.init.trunc_normal_(self.layer[0].weight, std=0.02, a=-0.04, b=0.04)
+        self.de
 
     def forward(self, x):
         if self.prenorm:
@@ -32,25 +36,22 @@ class RNadModel(nn.Module):
             ResNet(hidden_dim, dropout),
             ResNet(hidden_dim, dropout),
         )
-        self.policy_tower = nn.Linear(hidden_dim, num_actions)
 
+        self.policy_head = nn.Linear(hidden_dim, num_actions)
         self.value_head = nn.Linear(hidden_dim, 1)
-        self.log_policy_head = nn.Sequential(
-            self.policy_tower,
-            nn.LogSoftmax(dim=-1)
-        )
-        self.policy_head = nn.Sequential(
-            self.policy_tower,
-            nn.Softmax(dim=-1)
-        )
 
-    def forward(self, x):
-        embedding = self.tower(x)
-        return (
-            self.value_head(embedding),
-            self.log_policy_head(embedding),
-            self.policy_head(embedding)
-        )
+    def forward(self, information_state, legal_actions):
+        embedding = self.tower(information_state)
+
+        logits = self.policy_head(embedding)
+        exp_logits = torch.where(legal_actions, torch.exp(logits), 0)
+        policy = torch.nn.functional.normalize(exp_logits, dim=-1, p=1)
+        log_sum = torch.log(torch.sum(exp_logits, dim=-1, keepdim=True))
+        log_policy = torch.where(legal_actions, logits - log_sum, 0)
+
+        value = self.value_head(embedding)
+
+        return (logits, log_policy, policy, value)
 
 
 class RNaD(nn.Module):
@@ -77,4 +78,13 @@ class RNaD(nn.Module):
         return model
 
     def forward(self, trajectories):
-        pass
+        information_state = torch.stack([
+            torch.tensor(t.information_state)
+            for t in trajectories
+        ])
+        legal_actions = torch.stack([
+            torch.tensor(t.legal_actions)
+            for t in trajectories
+        ])
+
+        logit, log_pi, pi, v = self.model(information_state, legal_actions)

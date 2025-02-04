@@ -107,18 +107,20 @@ bool ActorWorker::applyAction(
             bool has_non_terminal = false;
             for (size_t i = start; i < end; ++i) {
                 bool is_terminal = state_vec[i]->IsTerminal();
+                std::vector<bool> legal_actions(game->NumDistinctActions(), false);
+                for (open_spiel::Action action : legalActions(state_vec[i]))
+                    legal_actions[action] = true;
                 trajectories_vec[i].states.push_back(Trajectory::State{
                     .information_state = infoStateVector(state_vec[i]),
                     .current_player = state_vec[i]->CurrentPlayer(),
-                    .legal_actions = legalActions(state_vec[i]),
+                    .legal_actions = std::move(legal_actions),
                     .is_terminal = is_terminal,
                     .policy = policy_vec[i],
                     .action = action_vec[i]
                 });
                 if (is_terminal) {
                     trajectories_vec[i].returns = state_vec[i]->Returns();
-                }
-                else {
+                } else {
                     has_non_terminal = true;
                     state_vec[i]->ApplyAction(action_vec[i]);
                     playChance(state_vec[i]);
