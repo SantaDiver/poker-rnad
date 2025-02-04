@@ -54,6 +54,7 @@ public:
 
     ActorWorker::TrajectoryBatch getBatch(size_t seconds) {
         auto batch = queue->Pop(absl::Seconds(seconds));
+        if (!batch.has_value()) throw std::runtime_error("Timeout waiting for batch");
         return batch.value();
     }
 

@@ -74,9 +74,9 @@ class RNad:
         self.actor = Actor(
             game=self.game,
             model=jit_model._c,
-            num_workers=32,
+            num_workers=2,
             num_worked_threads=0,
-            batch_size=256,
+            batch_size=1024,
             max_queue_capacity=16,
             device_name=str(self.device)
         )
@@ -85,14 +85,14 @@ class RNad:
         self.actor.run()
 
         for _ in range(3):
-            print(len(self.actor.get_batch(wait_seconds=30)))
+            print(len(self.actor.get_batch(wait_seconds=1)))
 
         jit_model = torch.jit.script(self.model)
         self.actor.update_model(model=jit_model._c)
         print("Updating model")
 
         for _ in range(3):
-            print(len(self.actor.get_batch(wait_seconds=30)))
+            print(len(self.actor.get_batch(wait_seconds=1)))
 
         self.actor.stop()
 
