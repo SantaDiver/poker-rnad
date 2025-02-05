@@ -77,14 +77,17 @@ class RNaD(nn.Module):
         )
         return model
 
+    def batch_from_field(self, trajectories, field):
+        return torch.stack([
+            torch.stack([
+                torch.tensor(getattr(state, field))
+                for state in trj.states
+            ])
+            for trj in trajectories
+        ])
+
     def forward(self, trajectories):
-        information_state = torch.stack([
-            torch.tensor(t.information_state)
-            for t in trajectories
-        ])
-        legal_actions = torch.stack([
-            torch.tensor(t.legal_actions)
-            for t in trajectories
-        ])
+        information_state = self.batch_from_field(trajectories, 'information_state')
+        legal_actions = self.batch_from_field(trajectories, 'legal_actions')
 
         logit, log_pi, pi, v = self.model(information_state, legal_actions)
