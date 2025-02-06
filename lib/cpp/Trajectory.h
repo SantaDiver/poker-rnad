@@ -6,7 +6,7 @@ struct Trajectory {
         open_spiel::Player current_player;
         std::vector<bool> legal_actions;
         bool is_terminal;
-        open_spiel::ActionsAndProbs policy;
+        std::vector<double> policy;
         open_spiel::Action action;
 
         std::string ToString() const {

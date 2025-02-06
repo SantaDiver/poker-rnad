@@ -110,12 +110,16 @@ bool ActorWorker::applyAction(
                 std::vector<bool> legal_actions(game->NumDistinctActions(), false);
                 for (open_spiel::Action action : legalActions(state_vec[i]))
                     legal_actions[action] = true;
+                std::vector<double> policy(game->NumDistinctActions(), 0.);
+                for (auto [action, prob] : policy_vec[i])
+                    policy[action] = prob;
+
                 trajectories_vec[i].states.push_back(Trajectory::State{
                     .information_state = infoStateVector(state_vec[i]),
                     .current_player = state_vec[i]->CurrentPlayer(),
                     .legal_actions = std::move(legal_actions),
                     .is_terminal = is_terminal,
-                    .policy = policy_vec[i],
+                    .policy = policy,
                     .action = action_vec[i]
                 });
                 if (is_terminal) {
