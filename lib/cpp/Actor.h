@@ -22,6 +22,7 @@ public:
         , batch_size(batch_size_)
         , max_queue_capacity(max_queue_capacity_)
         , device_name(device_name_)
+        , running(false)
     {
     };
 
@@ -42,6 +43,8 @@ public:
             auto thread = std::thread(&ActorWorker::run, workers[i].get());
             threads.emplace_back(std::move(thread));
         }
+
+        running = true;
     }
 
     void stop() {
@@ -50,9 +53,12 @@ public:
 
         threads.clear();
         workers.clear();
+
+        running = false;
     }
 
     ActorWorker::TrajectoryBatch getBatch(size_t seconds) {
+        if (!running) throw std::runtime_error("Actor not running");
         auto batch = queue->Pop(absl::Seconds(seconds));
         if (!batch.has_value()) throw std::runtime_error("Timeout waiting for batch");
         return batch.value();
@@ -71,6 +77,7 @@ private:
     const size_t max_queue_capacity;
     const std::string device_name;
     std::unique_ptr<ActorWorker::Queue> queue;
+    bool running = false;
 
     std::vector< std::unique_ptr<ActorWorker> > workers;
     std::vector<std::thread> threads;

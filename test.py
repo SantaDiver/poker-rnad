@@ -57,7 +57,7 @@ class RNadModel(nn.Module):
         )
 
 
-class RNad:
+class RNaD:
     def __init__(self, game_def):
         self.game = pyspiel.load_game(game_def)
         infostate_tensor_shape = self.game.information_state_tensor_shape()[0]
@@ -76,7 +76,7 @@ class RNad:
             model=jit_model._c,
             num_workers=2,
             num_worked_threads=0,
-            batch_size=1024,
+            batch_size=16,
             max_queue_capacity=16,
             device_name=str(self.device)
         )
@@ -85,14 +85,14 @@ class RNad:
         self.actor.run()
 
         for _ in range(3):
-            print(len(self.actor.get_batch(wait_seconds=1)))
+            print(len(self.actor.get_batch(wait_seconds=5)))
 
         jit_model = torch.jit.script(self.model)
         self.actor.update_model(model=jit_model._c)
         print("Updating model")
 
         for _ in range(3):
-            print(len(self.actor.get_batch(wait_seconds=1)))
+            print(len(self.actor.get_batch(wait_seconds=5)))
 
         self.actor.stop()
 
@@ -114,7 +114,7 @@ def main():
     """.replace("    ", "").replace("\n", "")
     print(game_def)
 
-    rnad = RNad(game_def)
+    rnad = RNaD(game_def)
     rnad.step()
 
 
