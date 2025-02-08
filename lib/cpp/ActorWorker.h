@@ -15,7 +15,7 @@
 
 class ActorWorker {
 private:
-    static constexpr float EPS = 1e-10;
+    static constexpr double EPS = 1e-10;
 
 public:
     using TrajectoryBatch = std::vector<Trajectory>;

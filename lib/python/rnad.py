@@ -2,6 +2,7 @@ from typing import Dict
 
 import pyspiel
 from open_spiel.python.bots.uniform_random import UniformRandomBot
+from open_spiel.python.algorithms import exploitability
 
 import numpy as np
 import torch
@@ -59,6 +60,27 @@ class RNadModel(nn.Module):
         value = self.value_head(embedding)
 
         return (logits, log_policy, policy, value)
+
+
+class ModelPolicy(pyspiel.Policy):
+    def __init__(self, model, device):
+        super().__init__()
+        self.model = model
+        self.device = device
+
+    def action_probabilities(self, state, player_id=None):
+        information_state = torch.tensor([state.information_state_tensor()], dtype=torch.float32, device=self.device)
+        legal_actions = torch.zeros((1, state.get_game().num_distinct_actions()), dtype=torch.bool, device=self.device)
+        legal_actions_int = torch.tensor(state.legal_actions(), dtype=torch.int32, device=self.device)
+        legal_actions[0, legal_actions_int] = True
+
+        _, _, pi, _ = self.model(information_state, legal_actions)
+        pi = pi.detach().numpy()[0]
+
+        return {
+            action : pi[action]
+            for action in state.legal_actions()
+        }
 
 
 class RNaD:
@@ -266,13 +288,13 @@ class RNaD:
                 self.play_chance(state)
                 while not state.is_terminal():
                     if state.current_player() == player:
-                        information_state = torch.tensor([state.information_state_tensor()], dtype=torch.float32, device=self.device)
-                        legal_actions = torch.zeros((1, self.game.num_distinct_actions()), dtype=torch.bool, device=self.device)
+                        information_state = torch.tensor(state.information_state_tensor(), dtype=torch.float32, device=self.device)
+                        legal_actions = torch.zeros((self.game.num_distinct_actions(), ), dtype=torch.bool, device=self.device)
                         legal_actions_int = torch.tensor(state.legal_actions(), dtype=torch.int32, device=self.device)
-                        legal_actions[0, legal_actions_int] = True
+                        legal_actions[legal_actions_int] = True
 
                         _, _, pi, _ = self.model(information_state, legal_actions)
-                        pi = pi.detach().numpy()[0]
+                        pi = pi.detach().numpy()
                         action = np.random.choice(list(range(state.num_distinct_actions())), p=pi)
                         state.apply_action(action)
                     else:
@@ -284,9 +306,13 @@ class RNaD:
 
                 reward += state.returns()[player]
 
-            reward /= self.game.num_players()
+        return reward / (self.game.num_players() * num_plays)
 
-        return reward / num_plays
+
+    def nash_conv(self):
+        jit_model = torch.jit.script(self.model).eval()
+        model_policy = ModelPolicy(model=jit_model, device=self.device)
+        return exploitability.exploitability(self.game, model_policy)
 
 
     def run(self, max_updates):
@@ -316,8 +342,9 @@ class RNaD:
                 self.n += 1
                 self.total_steps += 1
 
-                if self.total_steps > 0 and self.total_steps % 100 == 0:
-                    print(self.play_against_random(1000))
+                if self.total_steps > 0 and self.total_steps % 10 == 0:
+                    print("win against random: ", self.play_against_random(10000))
+                    print("expl best response: ", self.nash_conv())
 
             self.n = 0
             self.m += 1

@@ -15,7 +15,7 @@ def main():
     #     stack=200 200 200 200 200 200
     # )
     # """.replace("    ", "").replace("\n", "")
-    game_def = "kuhn_poker(players=2)"
+    game_def = "leduc_poker(players=2)"
     print(game_def)
 
     rnad = RNaD(game_def)
