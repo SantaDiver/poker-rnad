@@ -1,0 +1,6 @@
+build/
+.cache/
+*.egg-info/
+.vscode/
+__pycache__/
+notebooks/

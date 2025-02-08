@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
+FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel
 
 RUN apt-get update && \
     apt-get install -y \
@@ -8,25 +8,17 @@ RUN apt-get update && \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Download LibTorch with proper filename handling
-ARG LIBTORCH_VERSION="2.3.0"
-ARG CUDA_VERSION="cu121"
-ARG LIBTORCH_ZIP="${CUDA_VERSION}/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}%2B${CUDA_VERSION}.zip"
-RUN wget "https://download.pytorch.org/libtorch/${LIBTORCH_ZIP}" -O libtorch.zip && \
-    unzip libtorch.zip && \
-    rm libtorch.zip && \
-    mv libtorch /opt/libtorch
-
-# Set environment variables (appended to existing paths)
-ENV LIBTORCH=/opt/libtorch
-ENV Torch_DIR="${LIBTORCH}/share/cmake/Torch"
-ENV LD_LIBRARY_PATH="${LIBTORCH}/lib:${LD_LIBRARY_PATH}"
-ENV CMAKE_PREFIX_PATH="${LIBTORCH}:${CMAKE_PREFIX_PATH}"
-ENV PATH="/usr/local/cuda/bin:${PATH}"
-
 # Copy your project files
 COPY . /app
 WORKDIR /app
 
-# Build with strict ABI control
-RUN pip install --verbose .
+RUN mv contrib/abseil-cpp contrib/open_spiel/open_spiel
+RUN mv contrib/project_acpc_server contrib/open_spiel/open_spiel/games/universal_poker/acpc
+
+# Dynamically set LibTorch environment variables and build
+RUN LIBTORCH_PATH=$(python -c "import torch, os; print(os.path.dirname(torch.__file__))") && \
+    export LIBTORCH="$LIBTORCH_PATH" && \
+    export Torch_DIR="$LIBTORCH_PATH/share/cmake/Torch" && \
+    export LD_LIBRARY_PATH="$LIBTORCH_PATH/lib:$LD_LIBRARY_PATH" && \
+    export CMAKE_PREFIX_PATH="$LIBTORCH_PATH:$CMAKE_PREFIX_PATH" && \
+    pip install --verbose .
