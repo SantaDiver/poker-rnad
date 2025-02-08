@@ -21,7 +21,7 @@ class ResNet(nn.Module):
         self.layer = nn.Sequential(
             nn.Linear(embedding_dim, embedding_dim),
             activation,
-            nn.Dropout(dropout),
+            # nn.Dropout(dropout),
         )
         self.layernorm = nn.LayerNorm(embedding_dim)
         self.prenorm = prenorm
@@ -159,7 +159,7 @@ class RNaD:
             ])
             for trj in trajectories
         ])
-        data.to(self.device)
+        data = data.to(self.device)
         return data
 
     def learn(self, trajectories, alpha):
@@ -294,7 +294,7 @@ class RNaD:
                         legal_actions[legal_actions_int] = True
 
                         _, _, pi, _ = self.model(information_state, legal_actions)
-                        pi = pi.detach().numpy()
+                        pi = pi.cpu().detach().numpy()
                         action = np.random.choice(list(range(state.num_distinct_actions())), p=pi)
                         state.apply_action(action)
                     else:

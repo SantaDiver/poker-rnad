@@ -2,7 +2,6 @@ import pyspiel
 import torch
 from torch import nn
 
-import time
 from poker_rnad_py import Actor
 
 

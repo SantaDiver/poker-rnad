@@ -12,7 +12,6 @@ list(APPEND CMAKE_PREFIX_PATH "${poker-rnad_SOURCE_DIR}/contrib/open_spiel/open_
 find_package(Torch REQUIRED)
 
 target_link_libraries(${LIB_NAME} PUBLIC
-    # ${poker-rnad_SOURCE_DIR}/contrib/open_spiel/build/libopen_spiel.dylib
     ${TORCH_LIBRARIES}
     thread-pool
 )
