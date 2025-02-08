@@ -4,7 +4,7 @@ struct Trajectory {
     struct State {
         std::vector<float> information_state;
         open_spiel::Player current_player;
-        std::vector<bool> legal_actions;
+        std::vector<uint8_t> legal_actions;
         bool is_terminal;
         std::vector<double> policy;
         open_spiel::Action action;

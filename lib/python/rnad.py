@@ -89,7 +89,7 @@ class RNaD:
             model=jit_model._c,
             num_workers=2,
             num_worked_threads=0,
-            batch_size=16,
+            batch_size=64,
             max_queue_capacity=16,
             device_name=str(self.device)
         )
@@ -102,6 +102,13 @@ class RNaD:
         self.eta = 0.2
         self.gamma_averaging = 0.001
         self.vtrace_gamma = 1
+        self.neurd_clip = 1000
+        self.beta = 2  # logit_clip
+        self.value_weight = 1
+        self.neurd_weight = 1
+        self.grad_clip = 1000
+        self.bounds = [100, 165, 200]
+        self.delta_m = [10_000, 100_000, 35_000]
 
         self.m = 0
         self.n = 0
@@ -126,27 +133,26 @@ class RNaD:
                 for state in trj.states
             ])
             for trj in trajectories
-        ]).T
+        ])
         data.to(self.device)
         return data
 
     def learn(self, trajectories, alpha):
         information_state = self.batch_from_field(trajectories, 'information_state', dtype=torch.float32)
-        legal_actions = self.batch_from_field(trajectories, 'legal_actions', dtype=torch.int16)
+        legal_actions = self.batch_from_field(trajectories, 'legal_actions', dtype=torch.bool)
 
         logit, log_pi, pi, v = self.model(information_state, legal_actions)
         pi_processed = vtrace.process_policy(pi, legal_actions, self.n_discrete, self.epsilon_threshold)
         v_target_list, has_played_list, v_trace_policy_target_list = [], [], []
 
         returns = torch.stack([
-            torch.tensor(trj.returns)
+            torch.tensor(trj.returns, dtype=torch.float32)
             for trj in trajectories
         ]).to(self.device)
-        action = self.batch_from_field(trajectories, 'action')
-        action_oh = torch.zeros_like(legal_actions)
-        action_oh[action] = 1
+        action = self.batch_from_field(trajectories, 'action', dtype=torch.long)
+        action_oh = F.one_hot(action, num_classes=legal_actions.shape[-1])
 
-        valid = ~self.batch_from_field(trajectories, 'is_terminal', dtype=torch.bool)
+        valid = 1 - self.batch_from_field(trajectories, 'is_terminal', dtype=torch.int16)
         player_id = self.batch_from_field(trajectories, 'current_player', dtype=torch.int32)
         policy = self.batch_from_field(trajectories, 'policy', dtype=torch.float32)
 
@@ -156,8 +162,8 @@ class RNaD:
             _, log_pi_reg_prev, _, _ = self.reg_model_prev(information_state, legal_actions)
             log_policy_reg = log_pi - (alpha * log_pi_reg + (1 - alpha) * log_pi_reg_prev)
 
-            reward = returns[:, player]
-            for player in range(self.game.NumPlayers()):
+            for player in range(self.game.num_players()):
+                reward = returns[:, player]
                 v_target_, has_played, policy_target_ = vtrace.v_trace(
                     v=v_target,
                     valid=valid,
@@ -166,7 +172,7 @@ class RNaD:
                     merged_policy=pi_processed,
                     merged_log_policy=log_policy_reg,
                     player_others=vtrace._player_others(player_id, valid, player),
-                    action_oh=action_oh,
+                    actions_oh=action_oh,
                     reward=reward,
                     player=player,
                     lambda_=1.0,
@@ -180,13 +186,13 @@ class RNaD:
                 has_played_list.append(has_played)
                 v_trace_policy_target_list.append(policy_target_)
 
-        loss_v = vtrace.get_loss_v([v] * self.game.NumPlayers(), v_target_list, has_played_list)
+        loss_v = vtrace.get_loss_v([v] * self.game.num_players(), v_target_list, has_played_list)
         is_vector = torch.unsqueeze(torch.ones_like(valid), dim=-1)
-        importance_sampling_correction = [is_vector] * self.game.NumPlayers()
+        importance_sampling_correction = [is_vector] * self.game.num_players()
 
         loss_nerd = vtrace.get_loss_nerd(
-            logit_list=[logit] * self.game.NumPlayers(),
-            policy_list=[pi_processed] * self.game.NumPlayers(),
+            logit_list=[logit] * self.game.num_players(),
+            policy_list=[pi_processed] * self.game.num_players(),
             q_vr_list=v_trace_policy_target_list,
             valid=valid,
             player_ids=player_id,
@@ -202,37 +208,75 @@ class RNaD:
 
     def update_actor_model(self):
         jit_model = torch.jit.script(self.model).eval()
-        self.actor.update_model(jit_model)
+        self.actor.update_model(jit_model._c)
+
+    def get_update_info(self) -> tuple[bool, int]:
+
+        """
+        The bool value is whether the run is finished, and second is the new delta_m value
+        which determines when how many steps until the next update.
+        """
+
+        bounding_indices = [i for i, bound in enumerate(self.bounds) if bound > self.m]
+        if not bounding_indices:
+            return False, 0
+
+        idx = min(bounding_indices)
+        return True, self.delta_m[idx]
+
+    def print_strat(self):
+        state = self.game.new_initial_state()
+        cards_dealt = 0
+        while state.is_chance_node():
+            outcomes = state.chance_outcomes()
+            if cards_dealt // 2 == 0:
+                max_card = max(outcomes, key=lambda x: x[0])[0]
+                state.apply_action(max_card)
+            else:
+                state.apply_action(outcomes[0][0])
+
+            cards_dealt += 1
+
+        information_state = torch.tensor([state.information_state_tensor()], dtype=torch.float32, device=self.device)
+        legal_actions = torch.zeros((1, self.game.num_distinct_actions()), dtype=torch.bool, device=self.device)
+        legal_actions_int = torch.tensor(state.legal_actions(), dtype=torch.int32, device=self.device)
+        legal_actions[0, legal_actions_int] = True
+
+        _, _, pi, v = self.model(information_state, legal_actions)
+        print(pi)
+
 
     def run(self, max_updates):
         for _ in range(max_updates):
-            print(self.total_steps)
-            delta_m = 1000  # [TODO]
+            may_resume, delta_m = self.get_update_info()
+            if not may_resume:
+                return
 
-            trajectories = self.actor.get_batch(wait_seconds=5)
+            while self.n < delta_m:
+                alpha = 1 if self.n > delta_m / 2 else self.n * 2 / delta_m
 
-        #     while self.n < delta_m:
-        #         alpha = 1 if self.n > delta_m / 2 else self.n * 2 / delta_m
+                trajectories = self.actor.get_batch(wait_seconds=5)
+                self.learn(trajectories=trajectories, alpha=alpha)
+                self.optimizer.step()
+                self.optimizer.zero_grad()
 
-        #         trajectories = self.actor.get_batch(wait_seconds=5)
-        #         self.learn(trajectories=trajectories, alpha=alpha)
-        #         self.optimizer.step()
-        #         self.optimizer.zero_grad()
+                model_params: Dict['str', torch.Tensor] = self.model.state_dict()
+                target_model_params: Dict['str', torch.Tensor] = self.target_model.state_dict()
+                for name, param in model_params.items():
+                    target_model_params[name].data.copy_(
+                        self.gamma_averaging * param.data
+                        + (1 - self.gamma_averaging) * target_model_params[name].data
+                    )
+                self.target_model.load_state_dict(target_model_params)
+                self.update_actor_model()
 
-        #         model_params: Dict['str', torch.Tensor] = self.model.state_dict()
-        #         target_model_params: Dict['str', torch.Tensor] = self.target_model.state_dict()
-        #         for name, param in model_params.items():
-        #             target_model_params[name].data.copy_(
-        #                 self.gamma_averaging * param.data
-        #                 + (1 - self.gamma_averaging) * target_model_params[name].data
-        #             )
-        #         self.target_model.load_state_dict(target_model_params)
-        #         self.update_actor_model()
+                self.n += 1
+                self.total_steps += 1
 
-        #         self.n += 1
-        #         self.total_steps += 1
+                if self.total_steps > 0 and self.total_steps % 100 == 0:
+                    self.print_strat()
 
-        #     self.n = 0
-        #     self.m += 1
-        #     self.reg_model_prev.load_state_dict(self.reg_model.state_dict())
-        #     self.reg_model.load_state_dict(self.target_model.state_dict())
+            self.n = 0
+            self.m += 1
+            self.reg_model_prev.load_state_dict(self.reg_model.state_dict())
+            self.reg_model.load_state_dict(self.target_model.state_dict())

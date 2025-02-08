@@ -41,6 +41,7 @@ private:
     using ActionVector = std::vector<open_spiel::Action>;
     using PolicyVector = std::vector<open_spiel::ActionsAndProbs>;
     using PolicyActionVectors = std::pair<PolicyVector, ActionVector>;
+    using ActionMask = std::vector<uint8_t>;
 
     [[nodiscard]] bool applyAction(
         ActorWorker::StateVector & state_vec,
@@ -54,6 +55,7 @@ private:
     static void playChance(StatePtr & state);
     std::vector<float> infoStateVector(const StatePtr & state) const;
     ActionVector legalActions(const StatePtr & state) const;
+    ActionMask legalActionAsMask(const StatePtr & state) const;
 
     const open_spiel::Game * game;
     mutable torch::jit::Module model;

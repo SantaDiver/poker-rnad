@@ -3,12 +3,14 @@
 #include "open_spiel/games/universal_poker/universal_poker.h"
 #include "open_spiel/spiel.h"
 #include "open_spiel/spiel_utils.h"
+#include <c10/core/Device.h>
 #include <exception>
 #include <memory>
 #include <mutex>
 #include <ostream>
 #include <span>
 #include <thread>
+#include <torch/types.h>
 
 
 namespace ActorWorkerRng {
@@ -71,7 +73,7 @@ ActorWorker::TrajectoryBatch ActorWorker::generateTrajectoriesBatch(size_t num_t
         std::lock_guard<std::mutex> lock(mtx);
         auto model_inputs = makeModelInputs(state_vec);
         auto output = model.forward(model_inputs).toTuple()->elements();
-        auto probs = output[output.size() - 1].toTensor();
+        auto probs = output[2].toTensor();
 
         const auto [policy_vec, action_vec] = sampleAction(state_vec, probs);
 
@@ -106,13 +108,17 @@ bool ActorWorker::applyAction(
         (const std::size_t start, const std::size_t end) {
             bool has_non_terminal = false;
             for (size_t i = start; i < end; ++i) {
+                std::vector<double> policy(game->NumDistinctActions(), 0.);
+                for (auto [action, prob] : policy_vec[i])
+                    policy[action] = prob;
+
                 bool is_terminal = state_vec[i]->IsTerminal();
                 trajectories_vec[i].states.push_back(Trajectory::State{
                     .information_state = infoStateVector(state_vec[i]),
                     .current_player = state_vec[i]->CurrentPlayer(),
-                    .legal_actions = legalActions(state_vec[i]),
+                    .legal_actions = legalActionAsMask(state_vec[i]),
                     .is_terminal = is_terminal,
-                    .policy = policy_vec[i],
+                    .policy = policy,
                     .action = action_vec[i]
                 });
                 if (is_terminal) {
@@ -132,32 +138,50 @@ bool ActorWorker::applyAction(
         [](const bool v){ return v; });
 }
 
-inline std::vector<float> ActorWorker::infoStateVector(const ActorWorker::StatePtr & state) const {
+inline std::vector<float> ActorWorker::infoStateVector(const StatePtr & state) const {
     if (state->IsTerminal()) return initial_state->InformationStateTensor();
     return state->InformationStateTensor();
 }
 
-inline ActorWorker::ActionVector ActorWorker::legalActions(const ActorWorker::StatePtr & state) const {
+inline ActorWorker::ActionVector ActorWorker::legalActions(const StatePtr & state) const {
     if (state->IsTerminal()) return initial_state->LegalActions();
     return state->LegalActions();
 }
 
-std::vector<torch::jit::IValue> ActorWorker::makeModelInputs(const ActorWorker::StateVector & state_vec) const {
+inline ActorWorker::ActionMask ActorWorker::legalActionAsMask(const StatePtr & state) const {
+    ActionMask legal_actions(game->NumDistinctActions(), 0);
+    for (open_spiel::Action action : legalActions(state))
+        legal_actions[action] = 1;
+    return legal_actions;
+}
+
+std::vector<torch::jit::IValue> ActorWorker::makeModelInputs(const StateVector & state_vec) const {
     std::vector<torch::Tensor> info_state_tensor_vec(state_vec.size());
+    std::vector<torch::Tensor> legal_actions_vec(state_vec.size());
+    auto options = torch::TensorOptions().device(device_name);
+
     thread_pool.detach_blocks(0, state_vec.size(),
-        [this, &state_vec, &info_state_tensor_vec](const std::size_t start, const std::size_t end) {
+    [this, &state_vec, &info_state_tensor_vec, &legal_actions_vec, &options]
+        (const std::size_t start, const std::size_t end) {
             for (size_t i = start; i < end; ++i) {
-                auto info_state_tensor = infoStateVector(state_vec[i]);
-                auto tensor = torch::from_blob(
-                    info_state_tensor.data(),
-                    {static_cast<int64_t>(info_state_tensor.size())},
-                    torch::dtype(torch::kFloat32)
+                auto info_state_vector = infoStateVector(state_vec[i]);
+                info_state_tensor_vec[i] = torch::tensor(
+                    info_state_vector,
+                    options.dtype(torch::kFloat32)
                 );
-                info_state_tensor_vec[i] = std::move(tensor.clone().to(device_name));
+
+                auto legal_actions_vector = legalActionAsMask(state_vec[i]);
+                legal_actions_vec[i] = torch::tensor(
+                    legal_actions_vector,
+                    options.dtype(torch::kBool)
+                );
             }
         });
     thread_pool.wait();
-    return {torch::stack(info_state_tensor_vec)};
+    return {
+        torch::stack(info_state_tensor_vec),
+        torch::stack(legal_actions_vec)
+    };
 }
 
 ActorWorker::PolicyActionVectors ActorWorker::sampleAction(
