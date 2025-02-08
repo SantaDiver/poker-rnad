@@ -1,6 +1,9 @@
 from typing import Dict
 
 import pyspiel
+from open_spiel.python.bots.uniform_random import UniformRandomBot
+
+import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -89,7 +92,7 @@ class RNaD:
             model=jit_model._c,
             num_workers=2,
             num_worked_threads=0,
-            batch_size=64,
+            batch_size=256,
             max_queue_capacity=16,
             device_name=str(self.device)
         )
@@ -246,6 +249,46 @@ class RNaD:
         print(pi)
 
 
+    def play_chance(self, state):
+        while state.is_chance_node():
+            outcomes_with_probs = state.chance_outcomes()
+            action_list, prob_list = zip(*outcomes_with_probs)
+            action = np.random.choice(action_list, p=prob_list)
+            state.apply_action(action)
+
+
+    def play_against_random(self, num_plays):
+        bots = [UniformRandomBot(player, np.random) for player in range(self.game.num_players())]
+        reward = 0.
+        for _ in range(num_plays):
+            for player in range(self.game.num_players()):
+                state = self.game.new_initial_state()
+                self.play_chance(state)
+                while not state.is_terminal():
+                    if state.current_player() == player:
+                        information_state = torch.tensor([state.information_state_tensor()], dtype=torch.float32, device=self.device)
+                        legal_actions = torch.zeros((1, self.game.num_distinct_actions()), dtype=torch.bool, device=self.device)
+                        legal_actions_int = torch.tensor(state.legal_actions(), dtype=torch.int32, device=self.device)
+                        legal_actions[0, legal_actions_int] = True
+
+                        _, _, pi, _ = self.model(information_state, legal_actions)
+                        pi = pi.detach().numpy()[0]
+                        action = np.random.choice(list(range(state.num_distinct_actions())), p=pi)
+                        state.apply_action(action)
+                    else:
+                        bot = bots[state.current_player()]
+                        action = bot.step(state)
+                        state.apply_action(action)
+
+                    self.play_chance(state)
+
+                reward += state.returns()[player]
+
+            reward /= self.game.num_players()
+
+        return reward / num_plays
+
+
     def run(self, max_updates):
         for _ in range(max_updates):
             may_resume, delta_m = self.get_update_info()
@@ -274,7 +317,7 @@ class RNaD:
                 self.total_steps += 1
 
                 if self.total_steps > 0 and self.total_steps % 100 == 0:
-                    self.print_strat()
+                    print(self.play_against_random(1000))
 
             self.n = 0
             self.m += 1

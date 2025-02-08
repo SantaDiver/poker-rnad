@@ -1,7 +1,7 @@
 build/
 .cache/
 *.egg-info/
-.vscode
+.vscode/
 
 *.pt
 
