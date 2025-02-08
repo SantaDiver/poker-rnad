@@ -21,7 +21,7 @@ class ResNet(nn.Module):
         self.layer = nn.Sequential(
             nn.Linear(embedding_dim, embedding_dim),
             activation,
-            # nn.Dropout(dropout),
+            nn.Dropout(dropout),
         )
         self.layernorm = nn.LayerNorm(embedding_dim)
         self.prenorm = prenorm
