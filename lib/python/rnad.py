@@ -9,7 +9,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-import vtrace
+from . import vtrace
 from poker_rnad_py import Actor
 
 
@@ -323,7 +323,6 @@ class RNaD:
                 return
 
             while self.n < delta_m:
-                print(self.total_steps)
                 alpha = 1 if self.n > delta_m / 2 else self.n * 2 / delta_m
 
                 trajectories = self.actor.get_batch(wait_seconds=5)

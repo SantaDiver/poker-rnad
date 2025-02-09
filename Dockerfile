@@ -5,7 +5,7 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip install open_spiel
+RUN pip install open_spiel jupyterlab
 
 # Copy your project files
 COPY . /app
@@ -19,4 +19,4 @@ RUN LIBTORCH_PATH=$(python -c "import torch, os; print(os.path.dirname(torch.__f
     export CMAKE_PREFIX_PATH="$LIBTORCH_PATH:$CMAKE_PREFIX_PATH" && \
     pip install --verbose .
 
-CMD python lib/python/train.py
+CMD jupyter lab --ip 0.0.0.0 --port 8888 --no-browser --allow-root

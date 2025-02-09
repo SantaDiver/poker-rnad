@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 import torch
 
-from setuptools import Extension, setup
+from setuptools import Extension, setup, find_packages
 from setuptools.command.build_ext import build_ext
 
 # Convert distutils Windows platform specifiers to CMake -A arguments
@@ -137,10 +137,11 @@ class CMakeBuild(build_ext):
 setup(
     name="poker-rnad",
     version="0.0.0",
-    ext_modules=[CMakeExtension("poker_rnad")],
+    ext_modules=[CMakeExtension("poker_rnad", sourcedir=".")],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
     extras_require={"test": ["pytest>=6.0"]},
     python_requires=">=3.7",
-    packages=['']
+    packages=["poker_rnad"],
+    package_dir={"poker_rnad": "lib/python"}
 )
