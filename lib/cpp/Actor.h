@@ -1,13 +1,14 @@
 #pragma once
 
 #include "ActorWorker.h"
+#include "open_spiel/spiel.h"
 #include <memory>
 
 
 class Actor {
 public:
     Actor(
-            const open_spiel::Game * game_,
+            const std::string & game_string,
             const torch::jit::Module & model_,
             size_t num_workers_,
             size_t num_worker_threads_,
@@ -15,7 +16,7 @@ public:
             size_t max_queue_capacity_,
             const std::string_view device_name_ = "cpu"
     )
-        : game(game_)
+        : game(open_spiel::LoadGame(game_string))
         , model(model_)
         , num_workers(num_workers_)
         , num_worker_threads(num_worker_threads_)
@@ -33,7 +34,7 @@ public:
 
         for (size_t i = 0; i < num_workers; ++i) {
             workers.push_back(std::make_unique<ActorWorker>(
-                game,
+                game.get(),
                 model,
                 queue.get(),
                 batch_size,
@@ -69,7 +70,7 @@ public:
     }
 
 private:
-    const open_spiel::Game * game;
+    const std::shared_ptr<const open_spiel::Game> game;
     torch::jit::Module model;
     const size_t num_workers;
     const size_t num_worker_threads;

@@ -84,9 +84,10 @@ class ModelPolicy(pyspiel.Policy):
 
 
 class RNaD:
-    def __init__(self, game_def):
+    def __init__(self, game_def, device=torch.device('cpu')):
+        self.game_def = game_def
         self.game = pyspiel.load_game(game_def)
-        self.device = torch.device('cpu')
+        self.device = device
         self.model = self.init_model()
         self.model.train()
 
@@ -110,7 +111,7 @@ class RNaD:
 
         jit_model = torch.jit.script(self.model).eval()
         self.actor = Actor(
-            game=self.game,
+            game=self.game_def,
             model=jit_model._c,
             num_workers=2,
             num_worked_threads=0,
@@ -148,7 +149,7 @@ class RNaD:
             hidden_dim=128,
             dropout=0.1
         )
-        model.to(self.device)
+        model = model.to(self.device)
         return model
 
     def batch_from_field(self, trajectories, field, dtype):
@@ -322,6 +323,7 @@ class RNaD:
                 return
 
             while self.n < delta_m:
+                print(self.total_steps)
                 alpha = 1 if self.n > delta_m / 2 else self.n * 2 / delta_m
 
                 trajectories = self.actor.get_batch(wait_seconds=5)

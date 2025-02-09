@@ -1,7 +1,11 @@
+#include <memory>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <torch/script.h>
+
 #include "Actor.h"
+#include "open_spiel/spiel.h"
 
 namespace py = pybind11;
 
@@ -26,7 +30,7 @@ PYBIND11_MODULE(poker_rnad_py, m) {
         .def("__str__", &Trajectory::ToString);
 
     py::class_<Actor>(m, "Actor")
-        .def(py::init<const open_spiel::Game *, const torch::jit::Module &, const size_t,
+        .def(py::init<const std::string &, const torch::jit::Module &, const size_t,
             const size_t, const size_t, const size_t, const std::string_view>(),
             py::arg("game"), py::arg("model"), py::arg("num_workers"),
             py::arg("num_worked_threads"), py::arg("batch_size"),

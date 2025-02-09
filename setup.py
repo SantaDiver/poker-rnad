@@ -3,6 +3,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+import torch
 
 from setuptools import Extension, setup
 from setuptools.command.build_ext import build_ext
@@ -41,6 +42,13 @@ class CMakeBuild(build_ext):
         # Can be set with Conda-Build, for example.
         cmake_generator = os.environ.get("CMAKE_GENERATOR", "")
 
+        cmake_cxx_flags = []
+        for name in ["COMPILER_TYPE", "STDLIB", "BUILD_ABI"]:
+            val = getattr(torch._C, f"_PYBIND11_{name}")
+            if val is not None:
+                cmake_cxx_flags += [f'-DPYBIND11_{name}=\\"{val}\\"']
+        cmake_cxx_flags = " ".join(cmake_cxx_flags)
+
         # Set Python_EXECUTABLE instead if you use PYBIND11_FINDPYTHON
         # EXAMPLE_VERSION_INFO shows you how to pass a value into the C++ code
         # from Python.
@@ -48,6 +56,7 @@ class CMakeBuild(build_ext):
             f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={extdir}{os.sep}",
             f"-DPYTHON_EXECUTABLE={sys.executable}",
             f"-DCMAKE_BUILD_TYPE={cfg}",  # not used on MSVC, but no harm
+            f"-DCMAKE_CXX_FLAGS='{cmake_cxx_flags}'",
         ]
         build_args = []
         # Adding CMake arguments set as environment variable
