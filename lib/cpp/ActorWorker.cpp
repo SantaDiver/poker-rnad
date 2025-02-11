@@ -73,7 +73,7 @@ ActorWorker::TrajectoryBatch ActorWorker::generateTrajectoriesBatch(size_t num_t
         std::lock_guard<std::mutex> lock(mtx);
         auto model_inputs = makeModelInputs(state_vec);
         auto output = model.forward(model_inputs).toTuple()->elements();
-        auto probs = output[2].toTensor();
+        auto probs = output[2].toTensor().to(torch::kCPU).detach();
 
         const auto [policy_vec, action_vec] = sampleAction(state_vec, probs);
 
@@ -158,29 +158,28 @@ inline ActorWorker::ActionMask ActorWorker::legalActionAsMask(const StatePtr & s
 std::vector<torch::jit::IValue> ActorWorker::makeModelInputs(const StateVector & state_vec) const {
     std::vector<torch::Tensor> info_state_tensor_vec(state_vec.size());
     std::vector<torch::Tensor> legal_actions_vec(state_vec.size());
-    auto options = torch::TensorOptions().device(device_name);
 
     thread_pool.detach_blocks(0, state_vec.size(),
-    [this, &state_vec, &info_state_tensor_vec, &legal_actions_vec, &options]
+    [this, &state_vec, &info_state_tensor_vec, &legal_actions_vec]
         (const std::size_t start, const std::size_t end) {
             for (size_t i = start; i < end; ++i) {
                 auto info_state_vector = infoStateVector(state_vec[i]);
                 info_state_tensor_vec[i] = torch::tensor(
                     info_state_vector,
-                    options.dtype(torch::kFloat32)
+                    torch::TensorOptions().dtype(torch::kFloat32)
                 );
 
                 auto legal_actions_vector = legalActionAsMask(state_vec[i]);
                 legal_actions_vec[i] = torch::tensor(
                     legal_actions_vector,
-                    options.dtype(torch::kBool)
+                    torch::TensorOptions().dtype(torch::kBool)
                 );
             }
         });
     thread_pool.wait();
     return {
-        torch::stack(info_state_tensor_vec),
-        torch::stack(legal_actions_vec)
+        torch::stack(info_state_tensor_vec).to(device_name),
+        torch::stack(legal_actions_vec).to(device_name)
     };
 }
 

@@ -21,7 +21,7 @@ class ResNet(nn.Module):
         self.layer = nn.Sequential(
             nn.Linear(embedding_dim, embedding_dim),
             activation,
-            nn.Dropout(dropout),
+            # nn.Dropout(dropout),
         )
         self.layernorm = nn.LayerNorm(embedding_dim)
         self.prenorm = prenorm
@@ -37,6 +37,7 @@ class ResNet(nn.Module):
 class RNadModel(nn.Module):
     def __init__(self, infostate_tensor_shape, num_actions, hidden_dim, dropout):
         super().__init__()
+        self.num_actions = num_actions
 
         self.tower = nn.Sequential(
             nn.Linear(infostate_tensor_shape, hidden_dim),
@@ -113,9 +114,9 @@ class RNaD:
         self.actor = Actor(
             game=self.game_def,
             model=jit_model._c,
-            num_workers=2,
+            num_workers=4,
             num_worked_threads=0,
-            batch_size=256,
+            batch_size=768,
             max_queue_capacity=16,
             device_name=str(self.device)
         )
@@ -146,7 +147,7 @@ class RNaD:
         model = RNadModel(
             infostate_tensor_shape=infostate_tensor_shape,
             num_actions=num_actions,
-            hidden_dim=128,
+            hidden_dim=256,
             dropout=0.1
         )
         model = model.to(self.device)
@@ -343,9 +344,11 @@ class RNaD:
                 self.n += 1
                 self.total_steps += 1
 
-                if self.total_steps > 0 and self.total_steps % 10 == 0:
+                if self.total_steps > 0 and self.total_steps % 1000 == 0:
                     print("win against random: ", self.play_against_random(10000))
                     print("expl best response: ", self.nash_conv())
+                elif self.total_steps > 0 and self.total_steps % 100 == 0:
+                    print(self.total_steps)
 
             self.n = 0
             self.m += 1

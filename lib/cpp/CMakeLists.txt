@@ -1,3 +1,4 @@
+set(CMAKE_CXX_STANDARD 20)
 set(LIB_NAME poker_rnad_cpp)
 add_library(${LIB_NAME})
 
