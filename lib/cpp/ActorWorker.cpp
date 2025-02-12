@@ -20,18 +20,18 @@ namespace ActorWorkerRng {
 ActorWorker::ActorWorker(
         const open_spiel::Game * game_,
         const torch::jit::Module & model_,
+        const lf::lazy_pool & pool_,
         Queue * queue_,
         size_t batch_size_,
-        size_t num_threads,
         const std::string_view device_name_
 )
     : game(game_)
     , model(model_)
     , queue(queue_)
+    , pool(pool_)
     , batch_size(batch_size_)
     , device_name(device_name_)
-    , thread_pool(num_threads, []{ ActorWorkerRng::rng.seed(std::random_device()()); })
-    , is_blocked(false)
+    , running(true)
 {
     initial_state = game->NewInitialState();
     playChance(initial_state);
@@ -41,13 +41,17 @@ void ActorWorker::run() {
     SPIEL_CHECK_TRUE(queue);
     SPIEL_CHECK_GT(batch_size, 0);
 
-    while(!is_blocked) {
-        queue->Push(generateTrajectoriesBatch(batch_size));
+    while (running.load(std::memory_order_relaxed)) {
+
     }
+
+    // while(!is_blocked) {
+    //     queue->Push(generateTrajectoriesBatch(batch_size));
+    // }
 }
 
 void ActorWorker::stop() {
-    is_blocked = true;
+    running = false;
     queue->BlockNewValues();
 }
 
