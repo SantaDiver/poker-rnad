@@ -3,35 +3,33 @@
 #include "open_spiel/games/universal_poker/universal_poker.h"
 #include "open_spiel/spiel.h"
 #include "open_spiel/spiel_utils.h"
+#include <atomic>
 #include <c10/core/Device.h>
 #include <exception>
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <random>
 #include <span>
 #include <thread>
 #include <torch/types.h>
 
 
-namespace ActorWorkerRng {
-    thread_local std::mt19937 rng;
-}
-
 ActorWorker::ActorWorker(
         const open_spiel::Game * game_,
         const torch::jit::Module & model_,
-        const lf::lazy_pool & pool_,
+        BS::light_thread_pool & thread_pool_,
         Queue * queue_,
         size_t batch_size_,
         const std::string_view device_name_
 )
     : game(game_)
     , model(model_)
+    , thread_pool(thread_pool_)
     , queue(queue_)
-    , pool(pool_)
     , batch_size(batch_size_)
     , device_name(device_name_)
-    , running(true)
+    , running(false)
 {
     initial_state = game->NewInitialState();
     playChance(initial_state);
@@ -41,13 +39,11 @@ void ActorWorker::run() {
     SPIEL_CHECK_TRUE(queue);
     SPIEL_CHECK_GT(batch_size, 0);
 
-    while (running.load(std::memory_order_relaxed)) {
+    running = true;
 
+    while(running.load(std::memory_order_relaxed)) {
+        queue->Push(generateTrajectoriesBatch(batch_size));
     }
-
-    // while(!is_blocked) {
-    //     queue->Push(generateTrajectoriesBatch(batch_size));
-    // }
 }
 
 void ActorWorker::stop() {
@@ -93,9 +89,10 @@ ActorWorker::TrajectoryBatch ActorWorker::generateTrajectoriesBatch(size_t num_t
 }
 
 void ActorWorker::playChance(ActorWorker::StatePtr & state) {
+    std::mt19937 rng{std::random_device{}()};
     while (state->IsChanceNode()) {
         open_spiel::ActionsAndProbs outcomes = state->ChanceOutcomes();
-        open_spiel::Action action = open_spiel::SampleAction(outcomes, ActorWorkerRng::rng).first;
+        const open_spiel::Action action = open_spiel::SampleAction(outcomes, rng).first;
         state->ApplyAction(action);
     }
 }
@@ -194,6 +191,7 @@ ActorWorker::PolicyActionVectors ActorWorker::sampleAction(
     thread_pool.detach_blocks(0, state_vec.size(),
         [this, &state_vec, &probs, &policy_vec, &action_vec]
         (const std::size_t start, const std::size_t end) {
+            std::mt19937 rng{std::random_device{}()};
             for (size_t i = start; i < end; ++i) {
                 open_spiel::ActionsAndProbs policy;
                 const std::vector<open_spiel::Action> legal_actions = legalActions(state_vec[i]);
@@ -207,10 +205,8 @@ ActorWorker::PolicyActionVectors ActorWorker::sampleAction(
                     }
                 }
                 open_spiel::NormalizePolicy(&policy);
-                const auto action = open_spiel::SampleAction(
-                    policy, ActorWorkerRng::rng).first;
+                action_vec[i] = open_spiel::SampleAction(policy, rng).first;
                 policy_vec[i] = std::move(policy);
-                action_vec[i] = action;
             }
         });
     thread_pool.wait();

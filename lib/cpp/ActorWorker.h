@@ -5,7 +5,6 @@
 #include "ATen/core/TensorBody.h"
 #include <torch/script.h>
 #include "BS_thread_pool.hpp"
-#include "libfork/schedule.hpp"
 
 #include "open_spiel/policy.h"
 #include "open_spiel/spiel.h"
@@ -25,7 +24,7 @@ public:
     ActorWorker(
         const open_spiel::Game * game_,
         const torch::jit::Module & model_,
-        const lf::lazy_pool & pool_,
+        BS::light_thread_pool & thread_pool_,
         Queue * queue_ = nullptr,
         size_t batch_size_ = 0,
         const std::string_view device_name_ = "cpu"
@@ -60,8 +59,7 @@ private:
 
     const open_spiel::Game * game;
     mutable torch::jit::Module model;
-    const lf::lazy_pool & pool;
-    mutable BS::light_thread_pool thread_pool;
+    BS::light_thread_pool & thread_pool;
     Queue * queue;
     const size_t batch_size;
     const std::string device_name;

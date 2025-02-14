@@ -114,8 +114,8 @@ class RNaD:
         self.actor = Actor(
             game=self.game_def,
             model=jit_model._c,
-            num_workers=4,
-            num_worked_threads=0,
+            num_workers=12,
+            num_threads=0,
             batch_size=768,
             max_queue_capacity=16,
             device_name=str(self.device)
@@ -147,7 +147,7 @@ class RNaD:
         model = RNadModel(
             infostate_tensor_shape=infostate_tensor_shape,
             num_actions=num_actions,
-            hidden_dim=256,
+            hidden_dim=4,
             dropout=0.1
         )
         model = model.to(self.device)
@@ -318,39 +318,50 @@ class RNaD:
 
 
     def run(self, max_updates):
-        for _ in range(max_updates):
-            may_resume, delta_m = self.get_update_info()
-            if not may_resume:
-                return
+        import time
 
-            while self.n < delta_m:
-                alpha = 1 if self.n > delta_m / 2 else self.n * 2 / delta_m
+        start = time.time()
 
-                trajectories = self.actor.get_batch(wait_seconds=5)
-                self.learn(trajectories=trajectories, alpha=alpha)
-                self.optimizer.step()
-                self.optimizer.zero_grad()
+        for i in range(10_000):
+            trajectories = self.actor.get_batch(wait_seconds=5)
+            if i > 0 and i % 1000 == 0:
+                end = time.time()
+                print(i, end - start)
+                start = end
 
-                model_params: Dict['str', torch.Tensor] = self.model.state_dict()
-                target_model_params: Dict['str', torch.Tensor] = self.target_model.state_dict()
-                for name, param in model_params.items():
-                    target_model_params[name].data.copy_(
-                        self.gamma_averaging * param.data
-                        + (1 - self.gamma_averaging) * target_model_params[name].data
-                    )
-                self.target_model.load_state_dict(target_model_params)
-                self.update_actor_model()
+        # for _ in range(max_updates):
+        #     may_resume, delta_m = self.get_update_info()
+        #     if not may_resume:
+        #         return
 
-                self.n += 1
-                self.total_steps += 1
+        #     while self.n < delta_m:
+        #         alpha = 1 if self.n > delta_m / 2 else self.n * 2 / delta_m
 
-                if self.total_steps > 0 and self.total_steps % 1000 == 0:
-                    print("win against random: ", self.play_against_random(10000))
-                    print("expl best response: ", self.nash_conv())
-                elif self.total_steps > 0 and self.total_steps % 100 == 0:
-                    print(self.total_steps)
+        #         trajectories = self.actor.get_batch(wait_seconds=5)
+        #         self.learn(trajectories=trajectories, alpha=alpha)
+        #         self.optimizer.step()
+        #         self.optimizer.zero_grad()
 
-            self.n = 0
-            self.m += 1
-            self.reg_model_prev.load_state_dict(self.reg_model.state_dict())
-            self.reg_model.load_state_dict(self.target_model.state_dict())
+        #         model_params: Dict['str', torch.Tensor] = self.model.state_dict()
+        #         target_model_params: Dict['str', torch.Tensor] = self.target_model.state_dict()
+        #         for name, param in model_params.items():
+        #             target_model_params[name].data.copy_(
+        #                 self.gamma_averaging * param.data
+        #                 + (1 - self.gamma_averaging) * target_model_params[name].data
+        #             )
+        #         self.target_model.load_state_dict(target_model_params)
+        #         self.update_actor_model()
+
+        #         self.n += 1
+        #         self.total_steps += 1
+
+        #         if self.total_steps > 0 and self.total_steps % 1000 == 0:
+        #             print("win against random: ", self.play_against_random(10000))
+        #             print("expl best response: ", self.nash_conv())
+        #         elif self.total_steps > 0 and self.total_steps % 100 == 0:
+        #             print(self.total_steps)
+
+        #     self.n = 0
+        #     self.m += 1
+        #     self.reg_model_prev.load_state_dict(self.reg_model.state_dict())
+        #     self.reg_model.load_state_dict(self.target_model.state_dict())

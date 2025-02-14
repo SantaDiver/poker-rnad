@@ -4,6 +4,3 @@
 [submodule "contrib/thread-pool"]
 	path = contrib/thread-pool
 	url = git@github.com:bshoshany/thread-pool.git
-[submodule "contrib/libfork"]
-	path = contrib/libfork
-	url = git@github.com:ConorWilliams/libfork.git

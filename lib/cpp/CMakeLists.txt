@@ -7,7 +7,6 @@ target_sources(${LIB_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/ActorWorker.cpp)
 
 target_include_directories(${LIB_NAME} PUBLIC ${poker-rnad_SOURCE_DIR}/contrib/open_spiel)
 target_include_directories(${LIB_NAME} PUBLIC ${poker-rnad_SOURCE_DIR}/contrib/open_spiel/open_spiel/abseil-cpp)
-target_include_directories(${LIB_NAME} PUBLIC ${poker-rnad_SOURCE_DIR}/contrib/libfork/include)
 
 # [TODO] fix this hack
 if (APPLE)
@@ -21,4 +20,4 @@ endif()
 
 find_package(Torch REQUIRED)
 target_include_directories(${LIB_NAME} PRIVATE ${TORCH_INCLUDE_DIRS})
-target_link_libraries(${LIB_NAME} PUBLIC ${TORCH_LIBRARIES} thread-pool libfork)
+target_link_libraries(${LIB_NAME} PUBLIC ${TORCH_LIBRARIES} thread-pool marl)
