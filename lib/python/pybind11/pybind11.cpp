@@ -18,6 +18,7 @@ PYBIND11_MODULE(poker_rnad_py, m) {
         .def_readwrite("is_terminal", &Trajectory::State::is_terminal)
         .def_readwrite("policy", &Trajectory::State::policy)
         .def_readwrite("action", &Trajectory::State::action)
+        .def_readwrite("returns", &Trajectory::State::returns)
 
         .def("__repr__", &Trajectory::State::ToString)
         .def("__str__", &Trajectory::State::ToString);
@@ -25,7 +26,6 @@ PYBIND11_MODULE(poker_rnad_py, m) {
     py::class_<Trajectory>(m, "Trajectory")
         .def(py::init<>())
         .def_readwrite("states", &Trajectory::states)
-        .def_readwrite("returns", &Trajectory::returns)
         .def("__repr__", &Trajectory::ToString)
         .def("__str__", &Trajectory::ToString);
 

@@ -120,12 +120,10 @@ bool ActorWorker::applyAction(
                     .legal_actions = legalActionAsMask(state_vec[i]),
                     .is_terminal = is_terminal,
                     .policy = policy,
-                    .action = action_vec[i]
+                    .action = action_vec[i],
+                    .returns = state_vec[i]->Returns()
                 });
-                if (is_terminal) {
-                    trajectories_vec[i].returns = state_vec[i]->Returns();
-                }
-                else {
+                if (!is_terminal) {
                     has_non_terminal = true;
                     state_vec[i]->ApplyAction(action_vec[i]);
                     playChance(state_vec[i]);

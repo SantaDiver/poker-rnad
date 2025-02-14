@@ -1,4 +1,5 @@
 from typing import Dict
+import time
 
 import pyspiel
 from open_spiel.python.bots.uniform_random import UniformRandomBot
@@ -85,7 +86,15 @@ class ModelPolicy(pyspiel.Policy):
 
 
 class RNaD:
-    def __init__(self, game_def, device=torch.device('cpu')):
+    def __init__(
+            self,
+            game_def,
+            num_workers,
+            num_threads,
+            batch_size,
+            max_queue_capacity,
+            device=torch.device('cpu')
+    ):
         self.game_def = game_def
         self.game = pyspiel.load_game(game_def)
         self.device = device
@@ -114,10 +123,10 @@ class RNaD:
         self.actor = Actor(
             game=self.game_def,
             model=jit_model._c,
-            num_workers=12,
-            num_threads=0,
-            batch_size=768,
-            max_queue_capacity=16,
+            num_workers=num_workers,
+            num_threads=num_threads,
+            batch_size=batch_size,
+            max_queue_capacity=max_queue_capacity,
             device_name=str(self.device)
         )
         self.actor.run()
@@ -154,13 +163,14 @@ class RNaD:
         return model
 
     def batch_from_field(self, trajectories, field, dtype):
-        data = torch.stack([
-            torch.stack([
-                torch.tensor(getattr(state, field), dtype=dtype)
-                for state in trj.states
-            ])
-            for trj in trajectories
-        ])
+        assert len(trajectories) > 0
+        states = trajectories[0].states
+        data = [[] for _ in range(len(states))]
+        for trj in trajectories:
+            for state_ind, state in enumerate(trj.states):
+                data[state_ind].append(torch.tensor(getattr(state, field), dtype=dtype))
+        data = list(map(torch.stack, data))
+        data = torch.stack(data)
         data = data.to(self.device)
         return data
 
@@ -172,10 +182,7 @@ class RNaD:
         pi_processed = vtrace.process_policy(pi, legal_actions, self.n_discrete, self.epsilon_threshold)
         v_target_list, has_played_list, v_trace_policy_target_list = [], [], []
 
-        returns = torch.stack([
-            torch.tensor(trj.returns, dtype=torch.float32)
-            for trj in trajectories
-        ]).to(self.device)
+        returns = self.batch_from_field(trajectories, 'returns', dtype=torch.float32)
         action = self.batch_from_field(trajectories, 'action', dtype=torch.long)
         action_oh = F.one_hot(action, num_classes=legal_actions.shape[-1])
 
@@ -190,7 +197,7 @@ class RNaD:
             log_policy_reg = log_pi - (alpha * log_pi_reg + (1 - alpha) * log_pi_reg_prev)
 
             for player in range(self.game.num_players()):
-                reward = returns[:, player]
+                reward = returns[..., player]
                 v_target_, has_played, policy_target_ = vtrace.v_trace(
                     v=v_target,
                     valid=valid,
@@ -318,50 +325,42 @@ class RNaD:
 
 
     def run(self, max_updates):
-        import time
-
         start = time.time()
+        for _ in range(max_updates):
+            may_resume, delta_m = self.get_update_info()
+            if not may_resume:
+                return
 
-        for i in range(10_000):
-            trajectories = self.actor.get_batch(wait_seconds=5)
-            if i > 0 and i % 1000 == 0:
-                end = time.time()
-                print(i, end - start)
-                start = end
+            while self.n < delta_m:
+                alpha = 1 if self.n > delta_m / 2 else self.n * 2 / delta_m
 
-        # for _ in range(max_updates):
-        #     may_resume, delta_m = self.get_update_info()
-        #     if not may_resume:
-        #         return
+                trajectories = self.actor.get_batch(wait_seconds=5)
+                self.learn(trajectories=trajectories, alpha=alpha)
+                self.optimizer.step()
+                self.optimizer.zero_grad()
 
-        #     while self.n < delta_m:
-        #         alpha = 1 if self.n > delta_m / 2 else self.n * 2 / delta_m
+                model_params: Dict['str', torch.Tensor] = self.model.state_dict()
+                target_model_params: Dict['str', torch.Tensor] = self.target_model.state_dict()
+                for name, param in model_params.items():
+                    target_model_params[name].data.copy_(
+                        self.gamma_averaging * param.data
+                        + (1 - self.gamma_averaging) * target_model_params[name].data
+                    )
+                self.target_model.load_state_dict(target_model_params)
+                self.update_actor_model()
 
-        #         trajectories = self.actor.get_batch(wait_seconds=5)
-        #         self.learn(trajectories=trajectories, alpha=alpha)
-        #         self.optimizer.step()
-        #         self.optimizer.zero_grad()
+                self.n += 1
+                self.total_steps += 1
 
-        #         model_params: Dict['str', torch.Tensor] = self.model.state_dict()
-        #         target_model_params: Dict['str', torch.Tensor] = self.target_model.state_dict()
-        #         for name, param in model_params.items():
-        #             target_model_params[name].data.copy_(
-        #                 self.gamma_averaging * param.data
-        #                 + (1 - self.gamma_averaging) * target_model_params[name].data
-        #             )
-        #         self.target_model.load_state_dict(target_model_params)
-        #         self.update_actor_model()
+                if self.total_steps > 0 and self.total_steps % 1000 == 0:
+                    print("win against random: ", self.play_against_random(10000))
+                    print("expl best response: ", self.nash_conv())
+                elif self.total_steps > 0 and self.total_steps % 100 == 0:
+                    end = time.time()
+                    print(self.total_steps, "time elapsed: ", end - start)
+                    start = end
 
-        #         self.n += 1
-        #         self.total_steps += 1
-
-        #         if self.total_steps > 0 and self.total_steps % 1000 == 0:
-        #             print("win against random: ", self.play_against_random(10000))
-        #             print("expl best response: ", self.nash_conv())
-        #         elif self.total_steps > 0 and self.total_steps % 100 == 0:
-        #             print(self.total_steps)
-
-        #     self.n = 0
-        #     self.m += 1
-        #     self.reg_model_prev.load_state_dict(self.reg_model.state_dict())
-        #     self.reg_model.load_state_dict(self.target_model.state_dict())
+            self.n = 0
+            self.m += 1
+            self.reg_model_prev.load_state_dict(self.reg_model.state_dict())
+            self.reg_model.load_state_dict(self.target_model.state_dict())

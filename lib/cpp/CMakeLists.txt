@@ -20,4 +20,4 @@ endif()
 
 find_package(Torch REQUIRED)
 target_include_directories(${LIB_NAME} PRIVATE ${TORCH_INCLUDE_DIRS})
-target_link_libraries(${LIB_NAME} PUBLIC ${TORCH_LIBRARIES} thread-pool marl)
+target_link_libraries(${LIB_NAME} PUBLIC ${TORCH_LIBRARIES} thread-pool)

@@ -8,6 +8,7 @@ struct Trajectory {
         bool is_terminal;
         std::vector<double> policy;
         open_spiel::Action action;
+        std::vector<double> returns;
 
         std::string ToString() const {
             std::string s;
@@ -18,7 +19,6 @@ struct Trajectory {
     };
 
     std::vector<State> states;
-    std::vector<double> returns;
 
     std::string ToString() const {
         std::string s;
