@@ -156,39 +156,27 @@ class RNaD:
         model = RNadModel(
             infostate_tensor_shape=infostate_tensor_shape,
             num_actions=num_actions,
-            hidden_dim=4,
+            hidden_dim=128,
             dropout=0.1
         )
         model = model.to(self.device)
         return model
 
-    def batch_from_field(self, trajectories, field, dtype):
-        assert len(trajectories) > 0
-        states = trajectories[0].states
-        data = [[] for _ in range(len(states))]
-        for trj in trajectories:
-            for state_ind, state in enumerate(trj.states):
-                data[state_ind].append(torch.tensor(getattr(state, field), dtype=dtype))
-        data = list(map(torch.stack, data))
-        data = torch.stack(data)
-        data = data.to(self.device)
-        return data
-
     def learn(self, trajectories, alpha):
-        information_state = self.batch_from_field(trajectories, 'information_state', dtype=torch.float32)
-        legal_actions = self.batch_from_field(trajectories, 'legal_actions', dtype=torch.bool)
+        information_state = trajectories.information_state
+        legal_actions = trajectories.legal_actions
 
         logit, log_pi, pi, v = self.model(information_state, legal_actions)
         pi_processed = vtrace.process_policy(pi, legal_actions, self.n_discrete, self.epsilon_threshold)
         v_target_list, has_played_list, v_trace_policy_target_list = [], [], []
 
-        returns = self.batch_from_field(trajectories, 'returns', dtype=torch.float32)
-        action = self.batch_from_field(trajectories, 'action', dtype=torch.long)
+        returns = trajectories.returns
+        action = trajectories.action
         action_oh = F.one_hot(action, num_classes=legal_actions.shape[-1])
 
-        valid = 1 - self.batch_from_field(trajectories, 'is_terminal', dtype=torch.int16)
-        player_id = self.batch_from_field(trajectories, 'current_player', dtype=torch.int32)
-        policy = self.batch_from_field(trajectories, 'policy', dtype=torch.float32)
+        valid = 1 - trajectories.is_terminal
+        player_id = trajectories.current_player
+        policy = trajectories.policy
 
         with torch.no_grad():
             _, _, _, v_target = self.target_model(information_state, legal_actions)

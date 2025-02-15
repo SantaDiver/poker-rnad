@@ -19,7 +19,7 @@ private:
 
 public:
     using TrajectoryBatch = std::vector<Trajectory>;
-    using Queue = open_spiel::ThreadedQueue<TrajectoryBatch>;
+    using Queue = open_spiel::ThreadedQueue<TrajectoryTensors>;
 
     ActorWorker(
         const open_spiel::Game * game_,
@@ -56,6 +56,7 @@ private:
     std::vector<float> infoStateVector(const StatePtr & state) const;
     ActionVector legalActions(const StatePtr & state) const;
     ActionMask legalActionAsMask(const StatePtr & state) const;
+    TrajectoryTensors trajectoryToTensors(const TrajectoryBatch & trajectories_vec) const;
 
     const open_spiel::Game * game;
     mutable torch::jit::Module model;

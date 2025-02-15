@@ -2,7 +2,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
-#include <torch/script.h>
+#include <torch/extension.h>
 
 #include "Actor.h"
 #include "open_spiel/spiel.h"
@@ -28,6 +28,15 @@ PYBIND11_MODULE(poker_rnad_py, m) {
         .def_readwrite("states", &Trajectory::states)
         .def("__repr__", &Trajectory::ToString)
         .def("__str__", &Trajectory::ToString);
+
+    py::class_<TrajectoryTensors>(m, "TrajectoryTensors")
+        .def_readwrite("information_state", &TrajectoryTensors::information_state)
+        .def_readwrite("current_player", &TrajectoryTensors::current_player)
+        .def_readwrite("legal_actions", &TrajectoryTensors::legal_actions)
+        .def_readwrite("is_terminal", &TrajectoryTensors::is_terminal)
+        .def_readwrite("policy", &TrajectoryTensors::policy)
+        .def_readwrite("action", &TrajectoryTensors::action)
+        .def_readwrite("returns", &TrajectoryTensors::returns);
 
     py::class_<Actor>(m, "Actor")
         .def(py::init<const std::string &, const torch::jit::Module &, const size_t,

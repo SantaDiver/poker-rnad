@@ -58,7 +58,7 @@ public:
         running = false;
     }
 
-    ActorWorker::TrajectoryBatch getBatch(size_t seconds) {
+    TrajectoryTensors getBatch(size_t seconds) {
         if (!running) throw std::runtime_error("Actor not running");
         auto batch = queue->Pop(absl::Seconds(seconds));
         if (!batch.has_value()) throw std::runtime_error("Timeout waiting for batch");

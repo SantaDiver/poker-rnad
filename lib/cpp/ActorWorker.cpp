@@ -1,18 +1,14 @@
 #include "ActorWorker.h"
+
 #include "open_spiel/game_parameters.h"
 #include "open_spiel/games/universal_poker/universal_poker.h"
 #include "open_spiel/spiel.h"
 #include "open_spiel/spiel_utils.h"
-#include <atomic>
-#include <c10/core/Device.h>
-#include <exception>
-#include <memory>
-#include <mutex>
-#include <ostream>
-#include <random>
-#include <span>
-#include <thread>
+
+#include <ATen/core/TensorBody.h>
+#include <c10/core/ScalarType.h>
 #include <torch/types.h>
+#include <c10/core/Device.h>
 
 
 ActorWorker::ActorWorker(
@@ -42,7 +38,9 @@ void ActorWorker::run() {
     running = true;
 
     while(running.load(std::memory_order_relaxed)) {
-        queue->Push(generateTrajectoriesBatch(batch_size));
+        const auto trajectories_batch = generateTrajectoriesBatch(batch_size);
+        const auto trajectory_tensors = trajectoryToTensors(trajectories_batch);
+        queue->Push(trajectory_tensors);
     }
 }
 
@@ -209,4 +207,64 @@ ActorWorker::PolicyActionVectors ActorWorker::sampleAction(
         });
     thread_pool.wait();
     return {policy_vec, action_vec};
+}
+
+TrajectoryTensors ActorWorker::trajectoryToTensors(const TrajectoryBatch & trajectories_vec) const {
+    SPIEL_CHECK_GT(trajectories_vec.size(), 0);
+
+    TrajectoryTensors result(
+        trajectories_vec[0].states.size(),
+        trajectories_vec.size(),
+        game->InformationStateTensorSize(),
+        game->NumDistinctActions(),
+        game->NumPlayers()
+    );
+
+    thread_pool.detach_blocks(0, trajectories_vec.size(),
+        [&trajectories_vec, &result]
+        (const std::size_t start, const std::size_t end) {
+            for (size_t b = start; b < end; ++b) {
+                for (size_t t = 0; t < trajectories_vec[0].states.size(); ++t) {
+                    result.information_state[t][b] = torch::tensor(
+                        trajectories_vec[b].states[t].information_state,
+                        torch::TensorOptions().dtype(torch::kFloat32)
+                    );
+                    result.current_player[t][b] = torch::tensor(
+                        trajectories_vec[b].states[t].current_player,
+                        torch::TensorOptions().dtype(torch::kInt64)
+                    );
+                    result.legal_actions[t][b] = torch::tensor(
+                        trajectories_vec[b].states[t].legal_actions,
+                        torch::TensorOptions().dtype(torch::kBool)
+                    );
+                    result.is_terminal[t][b] = torch::tensor(
+                        trajectories_vec[b].states[t].is_terminal,
+                        torch::TensorOptions().dtype(torch::kInt64)
+                    );
+                    result.policy[t][b] = torch::tensor(
+                        trajectories_vec[b].states[t].policy,
+                        torch::TensorOptions().dtype(torch::kFloat32)
+                    );
+                    result.action[t][b] = torch::tensor(
+                        trajectories_vec[b].states[t].action,
+                        torch::TensorOptions().dtype(torch::kInt64)
+                    );
+                    result.returns[t][b] = torch::tensor(
+                        trajectories_vec[b].states[t].returns,
+                        torch::TensorOptions().dtype(torch::kFloat32)
+                    );
+                }
+            }
+    });
+    thread_pool.wait();
+
+    result.information_state.to(device_name);
+    result.current_player.to(device_name);
+    result.legal_actions.to(device_name);
+    result.is_terminal.to(device_name);
+    result.policy.to(device_name);
+    result.action.to(device_name);
+    result.returns.to(device_name);
+
+    return result;
 }
