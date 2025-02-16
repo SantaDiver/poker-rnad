@@ -3,7 +3,7 @@ from poker_rnad import RNaD
 
 
 def main():
-    game_def = "leduc_poker(players=2)"
+    game_def = "kuhn_poker(players=2)"
     print(game_def)
 
     rnad = RNaD(

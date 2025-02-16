@@ -171,7 +171,7 @@ class RNaD:
         action = trajectories.action
         action_oh = F.one_hot(action, num_classes=legal_actions.shape[-1])
 
-        valid = (1 - trajectories.is_terminal).to(torch.float32)
+        valid = 1 - trajectories.is_terminal
         player_id = trajectories.current_player
         policy = trajectories.policy
 
@@ -247,33 +247,12 @@ class RNaD:
         idx = min(bounding_indices)
         return True, self.delta_m[idx]
 
-    def print_strat(self):
-        state = self.game.new_initial_state()
-        cards_dealt = 0
-        while state.is_chance_node():
-            outcomes = state.chance_outcomes()
-            if cards_dealt // 2 == 0:
-                max_card = max(outcomes, key=lambda x: x[0])[0]
-                state.apply_action(max_card)
-            else:
-                state.apply_action(outcomes[0][0])
-
-            cards_dealt += 1
-
-        information_state = torch.tensor([state.information_state_tensor()], dtype=torch.float32, device=self.device)
-        legal_actions = torch.zeros((1, self.game.num_distinct_actions()), dtype=torch.bool, device=self.device)
-        legal_actions_int = torch.tensor(state.legal_actions(), dtype=torch.int32, device=self.device)
-        legal_actions[0, legal_actions_int] = True
-
-        _, _, pi, v = self.model(information_state, legal_actions)
-
     def play_chance(self, state):
         while state.is_chance_node():
             outcomes_with_probs = state.chance_outcomes()
             action_list, prob_list = zip(*outcomes_with_probs)
             action = np.random.choice(action_list, p=prob_list)
             state.apply_action(action)
-
 
     def play_against_random(self, num_plays):
         bots = [UniformRandomBot(player, np.random) for player in range(self.game.num_players())]
