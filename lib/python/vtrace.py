@@ -286,9 +286,10 @@ def v_trace(
 
         # Learning output:
         our_learning_output = (
-            v  # value
-            + eta_log_policy  # regularisation
-            + actions_oh * torch.unsqueeze(inv_mu, dim=-1)
+            v
+            + eta_log_policy  # value
+            + actions_oh  # regularisation
+            * torch.unsqueeze(inv_mu, dim=-1)
             * (
                 torch.unsqueeze(discounted_reward, dim=-1)
                 + gamma

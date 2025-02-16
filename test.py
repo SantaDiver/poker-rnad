@@ -8,14 +8,14 @@ def main():
 
     rnad = RNaD(
         game_def=game_def,
-        num_workers=8,
+        num_workers=2,
         num_threads=12,
-        batch_size=768,
-        max_queue_capacity=128,
+        batch_size=512,
+        max_queue_capacity=16,
         device=torch.device('cpu')
     )
     print("built rnad")
-    rnad.run(1)
+    rnad.run(1000)
 
 
 if __name__ == '__main__':

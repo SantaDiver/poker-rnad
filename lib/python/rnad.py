@@ -11,6 +11,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from . import vtrace
+from .nn import MLP
 from poker_rnad_py import Actor
 
 
@@ -22,7 +23,7 @@ class ResNet(nn.Module):
         self.layer = nn.Sequential(
             nn.Linear(embedding_dim, embedding_dim),
             activation,
-            # nn.Dropout(dropout),
+            nn.Dropout(dropout),
         )
         self.layernorm = nn.LayerNorm(embedding_dim)
         self.prenorm = prenorm
@@ -108,10 +109,10 @@ class RNaD:
         self.reg_model_prev = self.init_model()
         self.reg_model_prev.load_state_dict(self.model.state_dict())
 
-        self.lr = 5 * 10**-5
+        self.lr = 5e-5
         self.b1_adam = 0
         self.b2_adam = 0.999
-        self.epsilon_adam = 10**-8
+        self.epsilon_adam = 10e-8
         self.optimizer = torch.optim.Adam(
             self.model.parameters(),
             lr=self.lr,
@@ -134,15 +135,15 @@ class RNaD:
         self.n_discrete = 32
         self.epsilon_threshold = 0.03
         self.c_bar = 1
-        self.roh_bar = 1
+        self.roh_bar = np.inf
         self.eta = 0.2
-        self.gamma_averaging = 0.001
+        self.gamma_averaging = 10e-3
         self.vtrace_gamma = 1
-        self.neurd_clip = 1000
-        self.beta = 2  # logit_clip
+        self.neurd_clip = 10000
+        self.beta = 2.  # logit_clip
         self.value_weight = 1
         self.neurd_weight = 1
-        self.grad_clip = 1000
+        self.grad_clip = 10000
         self.bounds = [100, 165, 200]
         self.delta_m = [10_000, 100_000, 35_000]
 
@@ -156,7 +157,7 @@ class RNaD:
         model = RNadModel(
             infostate_tensor_shape=infostate_tensor_shape,
             num_actions=num_actions,
-            hidden_dim=128,
+            hidden_dim=32,
             dropout=0.1
         )
         model = model.to(self.device)
@@ -166,18 +167,18 @@ class RNaD:
         information_state = trajectories.information_state
         legal_actions = trajectories.legal_actions
 
-        logit, log_pi, pi, v = self.model(information_state, legal_actions)
-        pi_processed = vtrace.process_policy(pi, legal_actions, self.n_discrete, self.epsilon_threshold)
-        v_target_list, has_played_list, v_trace_policy_target_list = [], [], []
-
         returns = trajectories.returns
         action = trajectories.action
         action_oh = F.one_hot(action, num_classes=legal_actions.shape[-1])
 
-        valid = 1 - trajectories.is_terminal
+        valid = (1 - trajectories.is_terminal).to(torch.float32)
         player_id = trajectories.current_player
         policy = trajectories.policy
 
+        logit, log_pi, pi, v = self.model(information_state, legal_actions)
+        pi_processed = vtrace.process_policy(pi, legal_actions, self.n_discrete, self.epsilon_threshold)
+
+        v_target_list, has_played_list, v_trace_policy_target_list = [], [], []
         with torch.no_grad():
             _, _, _, v_target = self.target_model(information_state, legal_actions)
             _, log_pi_reg, _, _ = self.reg_model(information_state, legal_actions)
@@ -265,8 +266,6 @@ class RNaD:
         legal_actions[0, legal_actions_int] = True
 
         _, _, pi, v = self.model(information_state, legal_actions)
-        print(pi)
-
 
     def play_chance(self, state):
         while state.is_chance_node():
@@ -305,12 +304,10 @@ class RNaD:
 
         return reward / (self.game.num_players() * num_plays)
 
-
     def nash_conv(self):
         jit_model = torch.jit.script(self.model).eval()
         model_policy = ModelPolicy(model=jit_model, device=self.device)
         return exploitability.exploitability(self.game, model_policy)
-
 
     def run(self, max_updates):
         start = time.time()
