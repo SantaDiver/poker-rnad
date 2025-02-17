@@ -78,7 +78,7 @@ class ModelPolicy(pyspiel.Policy):
         legal_actions[0, legal_actions_int] = True
 
         _, _, pi, _ = self.model(information_state, legal_actions)
-        pi = pi.detach().numpy()[0]
+        pi = pi.cpu().detach().numpy()[0]
 
         return {
             action : pi[action]

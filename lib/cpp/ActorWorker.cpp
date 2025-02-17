@@ -257,13 +257,13 @@ TrajectoryTensors ActorWorker::trajectoryToTensors(const TrajectoryBatch & traje
     });
     thread_pool.wait();
 
-    result.information_state.to(device_name);
-    result.current_player.to(device_name);
-    result.legal_actions.to(device_name);
-    result.is_terminal.to(device_name);
-    result.policy.to(device_name);
-    result.action.to(device_name);
-    result.returns.to(device_name);
+    result.information_state = result.information_state.to(device_name);
+    result.current_player = result.current_player.to(device_name);
+    result.legal_actions = result.legal_actions.to(device_name);
+    result.is_terminal = result.is_terminal.to(device_name);
+    result.policy = result.policy.to(device_name);
+    result.action = result.action.to(device_name);
+    result.returns = result.returns.to(device_name);
 
     return result;
 }
