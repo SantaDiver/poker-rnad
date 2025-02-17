@@ -19,5 +19,6 @@ elseif(UNIX)
 endif()
 
 find_package(Torch REQUIRED)
+find_library(TORCH_PYTHON_LIBRARY torch_python PATH "${TORCH_INSTALL_PREFIX}/lib")
 target_include_directories(${LIB_NAME} PRIVATE ${TORCH_INCLUDE_DIRS})
-target_link_libraries(${LIB_NAME} PUBLIC ${TORCH_LIBRARIES} thread-pool)
+target_link_libraries(${LIB_NAME} PUBLIC ${TORCH_LIBRARIES} ${TORCH_PYTHON_LIBRARY} thread-pool)

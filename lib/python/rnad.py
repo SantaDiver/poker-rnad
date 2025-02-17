@@ -94,9 +94,11 @@ class RNaD:
             num_threads,
             batch_size,
             max_queue_capacity,
+            hidden_dim,
             device=torch.device('cpu')
     ):
         self.game_def = game_def
+        self.hidden_dim = hidden_dim
         self.game = pyspiel.load_game(game_def)
         self.device = device
         self.model = self.init_model()
@@ -120,10 +122,9 @@ class RNaD:
             eps=self.epsilon_adam,
         )
 
-        jit_model = torch.jit.script(self.model).eval()
         self.actor = Actor(
             game=self.game_def,
-            model=jit_model._c,
+            model=self.get_jit_model()._c,
             num_workers=num_workers,
             num_threads=num_threads,
             batch_size=batch_size,
@@ -157,7 +158,7 @@ class RNaD:
         model = RNadModel(
             infostate_tensor_shape=infostate_tensor_shape,
             num_actions=num_actions,
-            hidden_dim=32,
+            hidden_dim=self.hidden_dim,
             dropout=0.1
         )
         model = model.to(self.device)
@@ -229,9 +230,12 @@ class RNaD:
         loss.backward()
         nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
 
-    def update_actor_model(self):
-        jit_model = torch.jit.script(self.model).eval()
-        self.actor.update_model(jit_model._c)
+    def get_jit_model(self):
+        new_model = self.init_model()
+        new_model.load_state_dict(self.model.state_dict())
+        new_model.eval()
+        jit_model = torch.jit.script(new_model)
+        return jit_model
 
     def get_update_info(self) -> tuple[bool, int]:
 
@@ -311,17 +315,19 @@ class RNaD:
                         + (1 - self.gamma_averaging) * target_model_params[name].data
                     )
                 self.target_model.load_state_dict(target_model_params)
-                self.update_actor_model()
+                self.actor.update_model(self.get_jit_model()._c)
 
                 self.n += 1
                 self.total_steps += 1
 
-                if self.total_steps > 0 and self.total_steps % 1000 == 0:
-                    print("win against random: ", self.play_against_random(10000))
-                    print("expl best response: ", self.nash_conv())
-                elif self.total_steps > 0 and self.total_steps % 100 == 0:
+                if self.total_steps > 0 and self.total_steps % 100 == 0:
+                    # print("win against random: ", self.play_against_random(10000))
                     end = time.time()
-                    print(self.total_steps, "time elapsed: ", end - start)
+                    print(
+                        self.total_steps,
+                        "time elapsed:", end - start,
+                        "expl best response:", self.nash_conv()
+                    )
                     start = end
 
             self.n = 0

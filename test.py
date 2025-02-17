@@ -3,7 +3,7 @@ from poker_rnad import RNaD
 
 
 def main():
-    game_def = "kuhn_poker(players=2)"
+    game_def = "leduc_poker(players=2)"
     print(game_def)
 
     rnad = RNaD(
@@ -11,7 +11,8 @@ def main():
         num_workers=2,
         num_threads=12,
         batch_size=512,
-        max_queue_capacity=16,
+        max_queue_capacity=4,
+        hidden_dim=256,
         device=torch.device('cpu')
     )
     print("built rnad")

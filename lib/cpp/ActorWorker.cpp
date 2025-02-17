@@ -110,22 +110,21 @@ bool ActorWorker::applyAction(
                 std::vector<double> policy(game->NumDistinctActions(), 0.);
                 for (auto [action, prob] : policy_vec[i])
                     policy[action] = prob;
-
-                bool is_terminal = state_vec[i]->IsTerminal();
-                trajectories_vec[i].states.push_back(Trajectory::State{
-                    .information_state = infoStateVector(state_vec[i]),
-                    .current_player = state_vec[i]->CurrentPlayer(),
-                    .legal_actions = legalActionAsMask(state_vec[i]),
-                    .is_terminal = is_terminal,
-                    .policy = policy,
-                    .action = action_vec[i],
-                    .returns = state_vec[i]->Returns()
-                });
-                if (!is_terminal) {
+                const auto prev_state = state_vec[i]->Clone();
+                if (!state_vec[i]->IsTerminal()) {
                     has_non_terminal = true;
                     state_vec[i]->ApplyAction(action_vec[i]);
                     playChance(state_vec[i]);
                 }
+                trajectories_vec[i].states.push_back(Trajectory::State{
+                    .information_state = infoStateVector(prev_state),
+                    .current_player = prev_state->CurrentPlayer(),
+                    .legal_actions = legalActionAsMask(prev_state),
+                    .is_terminal = prev_state->IsTerminal(),
+                    .policy = policy,
+                    .action = action_vec[i],
+                    .returns = state_vec[i]->Returns()
+                });
             }
 
             return has_non_terminal;
