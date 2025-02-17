@@ -13,6 +13,49 @@ import torch.nn.functional as F
 from . import vtrace
 from .nn import MLP
 from poker_rnad_py import Actor
+from dataclasses import dataclass, fields
+
+
+@dataclass(frozen=True)
+class EnvStep:
+  """Holds the tensor data representing the current game state."""
+  # Indicates whether the state is a valid one or just a padding. Shape: [...]
+  # The terminal state being the first one to be marked !valid.
+  # All other tensors in EnvStep contain data, but only for valid timesteps.
+  # Once !valid the data needs to be ignored, since it's a duplicate of
+  # some other previous state.
+  # The rewards is the only exception that contains reward values
+  # in the terminal state, which is marked !valid.
+  # TODO(author16): This is a confusion point and would need to be clarified.
+  valid: torch.Tensor  # pytype: disable=annotation-type-mismatch  # numpy-scalars
+  # The single tensor representing the state observation. Shape: [..., ??]
+  obs: torch.Tensor  # pytype: disable=annotation-type-mismatch  # numpy-scalars
+  # The legal actions mask for the current player. Shape: [..., A]
+  legal: torch.Tensor  # pytype: disable=annotation-type-mismatch  # numpy-scalars
+  # The current player id as an int. Shape: [...]
+  player_id: torch.Tensor  # pytype: disable=annotation-type-mismatch  # numpy-scalars
+  # The rewards of all the players. Shape: [..., P]
+  rewards: torch.Tensor  # pytype: disable=annotation-type-mismatch  # numpy-scalars
+
+
+@dataclass(frozen=True)
+class ActorStep:
+  """The actor step tensor summary."""
+  # The action (as one-hot) of the current player. Shape: [..., A]
+  action_oh: torch.Tensor  # pytype: disable=annotation-type-mismatch  # numpy-scalars
+  # The policy of the current player. Shape: [..., A]
+  policy: torch.Tensor  # pytype: disable=annotation-type-mismatch  # numpy-scalars
+  # The rewards of all the players. Shape: [..., P]
+  # Note - these are rewards obtained *after* the actor step, and thus
+  # these are the same as EnvStep.rewards visible before the *next* step.
+  rewards: torch.Tensor  # pytype: disable=annotation-type-mismatch  # numpy-scalars
+
+
+@dataclass(frozen=True)
+class TimeStep:
+  """The tensor data for one game transition (env_step, actor_step)."""
+  env: EnvStep
+  actor: ActorStep
 
 
 class ResNet(nn.Module):
@@ -53,6 +96,8 @@ class RNadModel(nn.Module):
 
     def forward(self, information_state, legal_actions):
         embedding = self.tower(information_state)
+
+        legal_actions = legal_actions.to(torch.bool)
 
         logits = self.policy_head(embedding)
         exp_logits = torch.where(legal_actions, torch.exp(logits), 0)
@@ -97,10 +142,14 @@ class RNaD:
             device=torch.device('cpu')
     ):
         self.game_def = game_def
+        self.batch_size = batch_size
         self.game = pyspiel.load_game(game_def)
         self.device = device
         self.model = self.init_model()
         self.model.train()
+
+        self._np_rng = np.random.RandomState(42)
+        self._ex_state = self.play_chance(self.game.new_initial_state())
 
         self.target_model = self.init_model()
         self.target_model.load_state_dict(self.model.state_dict())
@@ -120,24 +169,23 @@ class RNaD:
             eps=self.epsilon_adam,
         )
 
-        jit_model = torch.jit.script(self.model).eval()
-        self.actor = Actor(
-            game=self.game_def,
-            model=jit_model._c,
-            num_workers=num_workers,
-            num_threads=num_threads,
-            batch_size=batch_size,
-            max_queue_capacity=max_queue_capacity,
-            device_name=str(self.device)
-        )
-        self.actor.run()
+        # self.actor = Actor(
+        #     game=self.game_def,
+        #     model=self.build_jit_model()._c,
+        #     num_workers=num_workers,
+        #     num_threads=num_threads,
+        #     batch_size=batch_size,
+        #     max_queue_capacity=max_queue_capacity,
+        #     device_name=str(self.device)
+        # )
+        # self.actor.run()
 
         self.n_discrete = 32
         self.epsilon_threshold = 0.03
-        self.c_bar = 1
+        self.c_bar = 1.
         self.roh_bar = np.inf
         self.eta = 0.2
-        self.gamma_averaging = 10e-3
+        self.gamma_averaging = 0.001
         self.vtrace_gamma = 1
         self.neurd_clip = 10000
         self.beta = 2.  # logit_clip
@@ -157,25 +205,38 @@ class RNaD:
         model = RNadModel(
             infostate_tensor_shape=infostate_tensor_shape,
             num_actions=num_actions,
-            hidden_dim=32,
-            dropout=0.1
+            hidden_dim=16,
+            dropout=0.0
         )
         model = model.to(self.device)
         return model
 
     def learn(self, trajectories, alpha):
-        information_state = trajectories.information_state
-        legal_actions = trajectories.legal_actions
+        # information_state = trajectories.information_state
+        information_state = trajectories.env.obs
 
-        returns = trajectories.returns
-        action = trajectories.action
-        action_oh = F.one_hot(action, num_classes=legal_actions.shape[-1])
+        # legal_actions = trajectories.legal_actions
+        legal_actions = trajectories.env.legal
 
-        valid = 1 - trajectories.is_terminal
-        player_id = trajectories.current_player
-        policy = trajectories.policy
+        # returns = trajectories.returns
+        returns = trajectories.actor.rewards
+
+        # action = trajectories.action
+        # action_oh = F.one_hot(action, num_classes=legal_actions.shape[-1])
+        action_oh = trajectories.actor.action_oh
+
+        # valid = 1 - trajectories.is_terminal
+        valid = trajectories.env.valid
+
+        # player_id = trajectories.current_player
+        player_id = trajectories.env.player_id
+
+        # policy = trajectories.policy
+        policy = trajectories.actor.policy
 
         logit, log_pi, pi, v = self.model(information_state, legal_actions)
+        pi[...] = 0.
+        pi[:, :, -1] = 1.
         pi_processed = vtrace.process_policy(pi, legal_actions, self.n_discrete, self.epsilon_threshold)
 
         v_target_list, has_played_list, v_trace_policy_target_list = [], [], []
@@ -187,6 +248,7 @@ class RNaD:
 
             for player in range(self.game.num_players()):
                 reward = returns[..., player]
+                # print(returns[..., player])
                 v_target_, has_played, policy_target_ = vtrace.v_trace(
                     v=v_target,
                     valid=valid,
@@ -204,6 +266,8 @@ class RNaD:
                     eta=self.eta,
                     gamma=self.vtrace_gamma,
                 )
+
+                # print(v_target_)
 
                 v_target_list.append(v_target_)
                 has_played_list.append(has_played)
@@ -229,9 +293,15 @@ class RNaD:
         loss.backward()
         nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
 
+    def build_jit_model(self):
+        model_copy = self.init_model()
+        model_copy.load_state_dict(self.model.state_dict())
+        jit_model = torch.jit.script(model_copy)
+        jit_model.eval()
+        return jit_model
+
     def update_actor_model(self):
-        jit_model = torch.jit.script(self.model).eval()
-        self.actor.update_model(jit_model._c)
+        self.actor.update_model(self.build_jit_model()._c)
 
     def get_update_info(self) -> tuple[bool, int]:
 
@@ -251,8 +321,10 @@ class RNaD:
         while state.is_chance_node():
             outcomes_with_probs = state.chance_outcomes()
             action_list, prob_list = zip(*outcomes_with_probs)
-            action = np.random.choice(action_list, p=prob_list)
+            action = self._np_rng.choice(action_list, p=prob_list)
             state.apply_action(action)
+
+        return state
 
     def play_against_random(self, num_plays):
         bots = [UniformRandomBot(player, np.random) for player in range(self.game.num_players())]
@@ -260,7 +332,7 @@ class RNaD:
         for _ in range(num_plays):
             for player in range(self.game.num_players()):
                 state = self.game.new_initial_state()
-                self.play_chance(state)
+                state = self.play_chance(state)
                 while not state.is_terminal():
                     if state.current_player() == player:
                         information_state = torch.tensor(state.information_state_tensor(), dtype=torch.float32, device=self.device)
@@ -277,7 +349,7 @@ class RNaD:
                         action = bot.step(state)
                         state.apply_action(action)
 
-                    self.play_chance(state)
+                    state = self.play_chance(state)
 
                 reward += state.returns()[player]
 
@@ -287,6 +359,104 @@ class RNaD:
         jit_model = torch.jit.script(self.model).eval()
         model_policy = ModelPolicy(model=jit_model, device=self.device)
         return exploitability.exploitability(self.game, model_policy)
+
+    def actor_step(self, env_step: EnvStep):
+        _, _, pi, _ = self.model(env_step.obs, env_step.legal)
+        pi = pi.detach().cpu()
+        pi = np.asarray(pi).astype("float64")
+        # TODO(author18): is this policy normalization really needed?
+        pi = pi / np.sum(pi, axis=-1, keepdims=True)
+
+        pi[...] = 0.
+        pi[:, -1] = 1.
+
+        action = np.apply_along_axis(
+        lambda x: self._np_rng.choice(range(pi.shape[1]), p=x), axis=-1, arr=pi)
+        # TODO(author16): reapply the legal actions mask to bullet-proof sampling.
+        action_oh = np.zeros(pi.shape, dtype="float64")
+        action_oh[range(pi.shape[0]), action] = 1.0
+
+        actor_step = ActorStep(
+            policy=torch.from_numpy(pi),
+            action_oh=torch.from_numpy(action_oh),
+            rewards=torch.empty([])
+        )  # pytype: disable=wrong-arg-types  # numpy-scalars
+
+        return action, actor_step
+
+    def collect_batch_trajectory(self) -> TimeStep:
+        states = [
+            self.play_chance(self.game.new_initial_state())
+            for _ in range(self.batch_size)
+        ]
+        timesteps = []
+
+        env_step = self._batch_of_states_as_env_step(states)
+        trajectory_max = 10
+        for _ in range(trajectory_max):
+            prev_env_step = env_step
+            a, actor_step = self.actor_step(env_step)
+
+            states = self._batch_of_states_apply_action(states, a)
+            env_step = self._batch_of_states_as_env_step(states)
+            timesteps.append(
+                TimeStep(
+                    env=prev_env_step,
+                    actor=ActorStep(
+                        action_oh=actor_step.action_oh,
+                        policy=actor_step.policy,
+                        rewards=env_step.rewards),
+                ))
+        # Concatenate all the timesteps together to form a single rollout [T, B, ..]
+        return TimeStep(
+            actor=ActorStep(**{
+                field.name: torch.stack(list(map(lambda t: getattr(t.actor, field.name), timesteps)), dim=0)
+                for field in fields(ActorStep)
+            }),
+            env=EnvStep(**{
+                field.name: torch.stack(list(map(lambda t: getattr(t.env, field.name), timesteps)), dim=0)
+                for field in fields(EnvStep)
+            })
+        )
+
+    def _state_as_env_step(self, state: pyspiel.State) -> EnvStep:
+        # A  state must be communicated to players, however since
+        # it's a terminal state things like the state_representation or
+        # the set of legal actions are meaningless and only needed
+        # for the sake of creating well a defined trajectory tensor.
+        # Therefore the code below:
+        # - extracts the rewards
+        # - if the state is terminal, uses a dummy other state for other fields.
+        rewards = torch.tensor(state.returns(), dtype=torch.float32)
+
+        valid = not state.is_terminal()
+        if not valid:
+            state = self._ex_state
+
+        obs = state.information_state_tensor()
+
+        # TODO(author16): clarify the story around rewards and valid.
+        return EnvStep(
+            obs=torch.tensor(obs, dtype=torch.float32),
+            legal=torch.tensor(state.legal_actions_mask(), dtype=torch.int8),
+            player_id=torch.tensor(state.current_player(), dtype=torch.float32),
+            valid=torch.tensor(valid, dtype=torch.float32),
+            rewards=rewards)
+
+    def _batch_of_states_as_env_step(self, states) -> EnvStep:
+        envs = [self._state_as_env_step(state) for state in states]
+        return EnvStep(**{
+            field.name: torch.stack(list(map(lambda e: getattr(e, field.name), envs)), dim=0)
+            for field in fields(EnvStep)
+        })
+
+    def _batch_of_states_apply_action(self, states, actions):
+        assert len(states) == len(actions)
+        for state, action in zip(states, list(actions)):
+            if not state.is_terminal():
+                state.apply_action(action)
+                self.play_chance(state)
+        return states
 
     def run(self, max_updates):
         start = time.time()
@@ -298,7 +468,9 @@ class RNaD:
             while self.n < delta_m:
                 alpha = 1 if self.n > delta_m / 2 else self.n * 2 / delta_m
 
-                trajectories = self.actor.get_batch(wait_seconds=5)
+                # trajectories = self.actor.get_batch(wait_seconds=5)
+                trajectories = self.collect_batch_trajectory()
+
                 self.learn(trajectories=trajectories, alpha=alpha)
                 self.optimizer.step()
                 self.optimizer.zero_grad()
@@ -311,18 +483,21 @@ class RNaD:
                         + (1 - self.gamma_averaging) * target_model_params[name].data
                     )
                 self.target_model.load_state_dict(target_model_params)
-                self.update_actor_model()
+                # self.update_actor_model()
 
                 self.n += 1
                 self.total_steps += 1
 
-                if self.total_steps > 0 and self.total_steps % 1000 == 0:
-                    print("win against random: ", self.play_against_random(10000))
+                # if self.total_steps > 0 and self.total_steps % 1000 == 0:
+                #     print("win against random: ", self.play_against_random(10000))
+                #     print("expl best response: ", self.nash_conv())
+                # elif self.total_steps > 0 and self.total_steps % 100 == 0:
+                #     end = time.time()
+                #     print(self.total_steps, "time elapsed: ", end - start)
+                #     start = end
+
+                if self.total_steps > 0 and self.total_steps % 100 == 0:
                     print("expl best response: ", self.nash_conv())
-                elif self.total_steps > 0 and self.total_steps % 100 == 0:
-                    end = time.time()
-                    print(self.total_steps, "time elapsed: ", end - start)
-                    start = end
 
             self.n = 0
             self.m += 1

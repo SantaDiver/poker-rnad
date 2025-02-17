@@ -10,7 +10,7 @@ def main():
         game_def=game_def,
         num_workers=2,
         num_threads=12,
-        batch_size=512,
+        batch_size=4,
         max_queue_capacity=16,
         device=torch.device('cpu')
     )

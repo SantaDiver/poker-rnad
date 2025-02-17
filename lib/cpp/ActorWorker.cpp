@@ -49,9 +49,9 @@ void ActorWorker::stop() {
     queue->BlockNewValues();
 }
 
-void ActorWorker::updateModel(const torch::jit::Module & model_) {
+void ActorWorker::updateModel(const torch::jit::Module & new_model) {
     std::lock_guard<std::mutex> lock(mtx);
-    model = model_;
+    model = new_model;
 }
 
 ActorWorker::TrajectoryBatch ActorWorker::generateTrajectoriesBatch(size_t num_trajectories) const {

@@ -31,9 +31,10 @@ public:
     );
 
     TrajectoryBatch generateTrajectoriesBatch(size_t num_trajectories) const;
+    TrajectoryTensors trajectoryToTensors(const TrajectoryBatch & trajectories_vec) const;
     void run();
     void stop();
-    void updateModel(const torch::jit::Module & model_);
+    void updateModel(const torch::jit::Module & new_model);
 
 private:
     using StatePtr = std::unique_ptr<open_spiel::State>;
@@ -56,7 +57,6 @@ private:
     std::vector<float> infoStateVector(const StatePtr & state) const;
     ActionVector legalActions(const StatePtr & state) const;
     ActionMask legalActionAsMask(const StatePtr & state) const;
-    TrajectoryTensors trajectoryToTensors(const TrajectoryBatch & trajectories_vec) const;
 
     const open_spiel::Game * game;
     mutable torch::jit::Module model;

@@ -55,6 +55,8 @@ public:
         threads.clear();
         workers.clear();
 
+        queue.reset();
+
         running = false;
     }
 
@@ -65,8 +67,9 @@ public:
         return batch.value();
     }
 
-    void updateModel(const torch::jit::Module & model) {
-        for (size_t i = 0; i < workers.size(); ++i) workers[i]->updateModel(model);
+    void updateModel(const torch::jit::Module & new_model) {
+        model = new_model;
+        for (size_t i = 0; i < workers.size(); ++i) workers[i]->updateModel(new_model);
     }
 
 private:

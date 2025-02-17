@@ -321,6 +321,11 @@ def v_trace(
 
         # Invalid turn: init_state_v_trace and (zero target, learning_output)
         # pyformat: disable
+
+        # print(_where(valid, player_id, torch.full_like(player_id, -1)))
+        # if torch.any(valid):
+        #     print(our_v_target.sum(), opp_v_target.sum())
+
         return _where(
             valid,
             _where(
