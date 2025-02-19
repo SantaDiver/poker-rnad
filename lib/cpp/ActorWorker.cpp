@@ -119,7 +119,7 @@ bool ActorWorker::applyAction(
                 trajectories_vec[i].states.push_back(Trajectory::State{
                     .information_state = infoStateVector(prev_state),
                     .current_player = prev_state->CurrentPlayer(),
-                    .legal_actions = legalActionAsMask(prev_state),
+                    .legal_actions = prev_state->LegalActionsMask(),
                     .is_terminal = prev_state->IsTerminal(),
                     .policy = policy,
                     .action = action_vec[i],
@@ -144,13 +144,6 @@ inline ActorWorker::ActionVector ActorWorker::legalActions(const StatePtr & stat
     return state->LegalActions();
 }
 
-inline ActorWorker::ActionMask ActorWorker::legalActionAsMask(const StatePtr & state) const {
-    ActionMask legal_actions(game->NumDistinctActions(), 0);
-    for (open_spiel::Action action : legalActions(state))
-        legal_actions[action] = 1;
-    return legal_actions;
-}
-
 std::vector<torch::jit::IValue> ActorWorker::makeModelInputs(const StateVector & state_vec) const {
     std::vector<torch::Tensor> info_state_tensor_vec(state_vec.size());
     std::vector<torch::Tensor> legal_actions_vec(state_vec.size());
@@ -165,7 +158,7 @@ std::vector<torch::jit::IValue> ActorWorker::makeModelInputs(const StateVector &
                     torch::TensorOptions().dtype(torch::kFloat32)
                 );
 
-                auto legal_actions_vector = legalActionAsMask(state_vec[i]);
+                auto legal_actions_vector = state_vec[i]->LegalActionsMask();
                 legal_actions_vec[i] = torch::tensor(
                     legal_actions_vector,
                     torch::TensorOptions().dtype(torch::kBool)

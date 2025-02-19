@@ -3,7 +3,12 @@ from poker_rnad import RNaD
 
 
 def main():
-    game_def = "leduc_poker(players=2)"
+    # game_def = "leduc_poker(players=2)"
+    game_def = (
+        "universal_poker(betting=nolimit,numPlayers=2,numRounds=4,blind=100 50,"
+        "firstPlayer=2 1 1 1,numSuits=4,numRanks=13,numHoleCards=2,"
+        "numBoardCards=0 3 1 1,stack=10000 10000,bettingAbstraction=fchpa)"
+    )
     print(game_def)
 
     rnad = RNaD(

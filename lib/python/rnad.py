@@ -52,7 +52,7 @@ class RNadModel(nn.Module):
         self.value_head = nn.Linear(hidden_dim, 1)
 
     def forward(self, information_state, legal_actions):
-        embedding = self.tower(information_state)
+        embedding = torch.nn.functional.normalize(self.tower(information_state), dim=-1)
 
         logits = self.policy_head(embedding)
         exp_logits = torch.where(legal_actions, torch.exp(logits), 0)
@@ -177,6 +177,7 @@ class RNaD:
         policy = trajectories.policy
 
         logit, log_pi, pi, v = self.model(information_state, legal_actions)
+
         pi_processed = vtrace.process_policy(pi, legal_actions, self.n_discrete, self.epsilon_threshold)
 
         v_target_list, has_played_list, v_trace_policy_target_list = [], [], []
@@ -294,6 +295,8 @@ class RNaD:
 
     def run(self, max_updates):
         start = time.time()
+        get_batch_timing, learn_timing, update_timing = 0., 0., 0.
+
         for _ in range(max_updates):
             may_resume, delta_m = self.get_update_info()
             if not may_resume:
@@ -302,11 +305,17 @@ class RNaD:
             while self.n < delta_m:
                 alpha = 1 if self.n > delta_m / 2 else self.n * 2 / delta_m
 
+                get_batch_start = time.time()
                 trajectories = self.actor.get_batch(wait_seconds=5)
+                get_batch_timing += time.time() - get_batch_start
+
+                learn_start = time.time()
                 self.learn(trajectories=trajectories, alpha=alpha)
                 self.optimizer.step()
                 self.optimizer.zero_grad()
+                learn_timing += time.time() - learn_start
 
+                update_start = time.time()
                 model_params: Dict['str', torch.Tensor] = self.model.state_dict()
                 target_model_params: Dict['str', torch.Tensor] = self.target_model.state_dict()
                 for name, param in model_params.items():
@@ -316,18 +325,23 @@ class RNaD:
                     )
                 self.target_model.load_state_dict(target_model_params)
                 self.actor.update_model(self.get_jit_model()._c)
+                update_timing += time.time() - update_start
 
                 self.n += 1
                 self.total_steps += 1
 
                 if self.total_steps > 0 and self.total_steps % 100 == 0:
-                    # print("win against random: ", self.play_against_random(10000))
+                    print("win against random: ", self.play_against_random(10000))
                     end = time.time()
                     print(
                         self.total_steps,
                         "time elapsed:", end - start,
-                        "expl best response:", self.nash_conv()
+                        "time get batch:", get_batch_timing,
+                        "time learn:", learn_timing,
+                        "time update models:", update_timing,
+                        # "expl best response:", self.nash_conv()
                     )
+                    get_batch_timing, learn_timing, update_timing = 0., 0., 0.
                     start = end
 
             self.n = 0
