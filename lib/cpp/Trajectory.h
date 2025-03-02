@@ -2,6 +2,55 @@
 
 #include "open_spiel/spiel.h"
 #include "open_spiel/spiel_utils.h"
+#include "open_spiel/games/universal_poker/universal_poker.h"
+#include "open_spiel/games/universal_poker/acpc_cpp/acpc_game.h"
+
+using open_spiel::universal_poker::UniversalPokerState;
+using open_spiel::universal_poker::StateActionType;
+using open_spiel::universal_poker::acpc_cpp::ACPCState;
+
+
+struct InformationState {
+    static constexpr uint16_t BET_TO_POT_MAX_BUCKET = 9;
+    static constexpr uint16_t STACK_TO_POT_MAX_BUCKET = 9;
+
+    open_spiel::Player current_player;
+    std::vector<uint16_t> stack_to_pot_ratios;
+    uint16_t amount_to_call_to_stack_ratio;
+
+    StateActionType action_type;
+    int size;
+
+    InformationState(const open_spiel::State * state, open_spiel::Action action)
+        : current_player(state->CurrentPlayer())
+    {
+        const UniversalPokerState * poker_state = dynamic_cast<const UniversalPokerState *>(state);
+        const ACPCState & acpc_state = poker_state->acpc_state();
+
+        for (open_spiel::Player player = 0; player < state->NumPlayers(); ++player) {
+            const uint16_t stack = acpc_state.Money(player);
+            const uint16_t pot = acpc_state.TotalSpent();
+            stack_to_pot_ratios[player] = stack * STACK_TO_POT_MAX_BUCKET / pot;
+            stack_to_pot_ratios[player] = std::min(stack_to_pot_ratios[player], STACK_TO_POT_MAX_BUCKET);
+        }
+
+        const auto to_call = acpc_state.MaxSpend() - acpc_state.CurrentSpent(current_player);
+        const uint16_t to_call_bucket = to_call * BET_TO_POT_MAX_BUCKET / acpc_state.Money(current_player);
+        amount_to_call_to_stack_ratio = std::min(to_call_bucket, BET_TO_POT_MAX_BUCKET);
+
+        int action_int = static_cast<int>(action);
+        if (action_int == open_spiel::universal_poker::kFold) {
+            action_type = open_spiel::universal_poker::ACTION_FOLD;
+            size = 0;
+        } else if (action_int == open_spiel::universal_poker::kCall) {
+            action_type = open_spiel::universal_poker::ACTION_CHECK_CALL;
+            size = 0;
+        } else {
+            action_type = open_spiel::universal_poker::ACTION_BET;
+            size = action_int;
+        }
+    }
+};
 
 struct Trajectory {
     struct State {
